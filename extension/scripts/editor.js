@@ -425,6 +425,9 @@ async function activateLivescratch() {
             reactLoopInst = reactLoopInst.child;
         }
         ScratchBlocks = reactLoopInst.stateNode.ScratchBlocks; //reactInst.child.child.child.child.child.child.child.stateNode.ScratchBlocks;
+        // The editor no longer exposes a global Blockly with getMainWorkspace(), which
+        // this file calls in several places. ScratchBlocks is that same instance.
+        if(typeof window.Blockly?.getMainWorkspace != 'function') { window.Blockly = ScratchBlocks; }
         getWorkspace().removeChangeListener(blockListener);
         getWorkspace().addChangeListener(blockListener);
     });
@@ -451,29 +454,18 @@ async function activateLivescratch() {
     }
 
     function getWorkspace() {
-        let retVal = Blockly.getMainWorkspace();
-        if(typeof ScratchBlocks == 'undefined') {return retVal;}
-        Object.entries(ScratchBlocks.Workspace.WorkspaceDB_).forEach(wkv=>{
-            if(!wkv[1].isFlyout && wkv[1].deleteAreaToolbox_) {retVal = wkv[1];}
-        });
-        return retVal;
-    }
-    function getFlyout() {
-        if(typeof ScratchBlocks == 'undefined') {return null;}
-        Object.entries(ScratchBlocks.Workspace.WorkspaceDB_).forEach(wkv=>{
-            if(wkv[1].isFlyout /*&& wkv[1].deleteAreaToolbox_*/) {retVal = wkv[1];}
-        });
-        return retVal;
+        // getMainWorkspace is missing until the ScratchBlocks trap republishes window.Blockly
+        return window.Blockly?.getMainWorkspace?.();
     }
     function getWorkspaceId() {
         return getWorkspace()?.id;
     }
 
     function getDraggingId() {
-        return Blockly.getMainWorkspace().getBlockDragSurface().getCurrentBlock()?.getAttribute('data-id');
+        return window.Blockly?.getMainWorkspace?.()?.currentGesture_?.targetBlock?.id;
     }
     function isDragging() {
-        return Blockly.getMainWorkspace()?.isDragging();
+        return window.Blockly?.getMainWorkspace?.()?.isDragging();
     }
 
     // STAGE IDENTIFIER. DO NOT SET SPRITE NAME TO THIS UNLESS YOU WANT TO PURPOSEFULLY BREAK LINKAGE!!!!
@@ -508,7 +500,6 @@ async function activateLivescratch() {
     BL_UTILS = {
         isWorkspaceAccessable,
         getWorkspace,
-        getFlyout,
         getWorkspaceId,
         getDraggingId, isDragging,
         targetToName,
@@ -859,7 +850,10 @@ async function activateLivescratch() {
         let stringRep = getStringEventRep(e);
         if(stringRep in livescratchEvents) {delete livescratchEvents[stringRep];}
         else if(
-            !e.isLivescratch && 
+            !e.isLivescratch &&
+        // ui events now carry distinct types (a 'drag' event holds payload that
+        // port.postMessage() cannot serialize) and are flagged isUiEvent instead
+        !e.isUiEvent &&
         ['endDrag','ui','dragOutside'].indexOf(e.type) == -1 &&
         !isBadToSend(e,vm.editingTarget) &&
         e.element != 'stackclick'
@@ -1195,7 +1189,7 @@ async function activateLivescratch() {
             livescratchEvents[getStringEventRep({type:'comment_create',commentId})] = true;
         });
         // add deletes for top blocks in current workspace
-        getWorkspace()?.topBlocks_.forEach(block=>{
+        (getWorkspace()?.getTopBlocks?.(false) ?? []).forEach(block=>{
             livescratchEvents[getStringEventRep({type:'delete',blockId:block.id})] = true;
         });
         // add creates for all blocks in new workspace
@@ -2932,9 +2926,12 @@ function addButtonInjectors() {
 
 
 function addRevertButton() {
-    let seeProjectPage = Array.from(document.querySelectorAll('span[class*="community-button_community-button"]')).find(e=>e.innerText?.includes('Page'));
+    // the "See Project Page" control is no longer a span; fall back to any
+    // menu-bar button (the first one is the community button) as the anchor
+    let seeProjectPage = Array.from(document.querySelectorAll('span[class*="community-button_community-button"]')).find(e=>e.innerText?.includes('Page'))
+        ?? document.querySelector('[class*="menu-bar_menu-bar-button"]');
 
-    if(!blId) {return;}
+    if(!blId || !seeProjectPage) {return;}
 
     // let container = document.createElement('revertContainer')
     // container.style.display = 'flex'
@@ -2968,7 +2965,7 @@ function addRevertButton() {
     seeProjectPage.before(button);
 
     // delete tutorials text
-    Array.from(document.querySelectorAll('span')).find(e=>e.className.includes('menu-bar_tutorials-label')).remove();
+    Array.from(document.querySelectorAll('span')).find(e=>e.className.includes('menu-bar_tutorials-label'))?.remove();
 
 }
 

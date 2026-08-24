@@ -511,7 +511,10 @@ async function backgroundScript() {
         });
 
 
-    chrome.runtime.onMessage.addListener(async function (request, sender, sendResponse) {
+    // NOTE: must NOT be `async`. An async listener returns a Promise for every
+    // message, which Chrome resolves (to undefined here) and sends as the response,
+    // closing the channel before slower handlers like auth.js's `verify?` can reply.
+    chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
         if (request.meta == 'getUsername') {
             sendResponse(uname);
         } else if (request.meta == 'getUsernamePlus') {
