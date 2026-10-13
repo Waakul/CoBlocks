@@ -13,9 +13,9 @@ module.exports = {
 	        node_args: "--max-old-space-size=5120",	
             env: {
                 PORT: process.env.PORT,
+                PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL,
                 CHAT_WEBHOOK_URL: process.env.CHAT_WEBHOOK_URL,
                 ADMIN_USER: process.env.ADMIN_USER,
-                AUTH_PROJECTS: process.env.AUTH_PROJECTS,
                 ADMIN: process.env.ADMIN,
             }
         }

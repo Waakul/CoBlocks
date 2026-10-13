@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Signed in | LiveScratch</title>
+    <link rel="stylesheet" href="success.css">
+  </head>
+  <body>
+    <main class="card" aria-labelledby="success-title">
+      <div class="logo-wrap" aria-hidden="true">
+        <img src="../img/LogoLiveScratchFlat.svg" alt="">
+      </div>
+      <div class="check" aria-hidden="true">✓</div>
+      <p class="eyebrow">SCRATCH AUTH COMPLETE</p>
+      <h1 id="success-title">You're signed in</h1>
+      <p class="message">
+        LiveScratch is connected to <strong id="username">your Scratch account</strong>.
+        You can now collaborate on Scratch projects.
+      </p>
+      <div class="actions">
+        <button id="open-scratch" class="primary" type="button">Return to Scratch</button>
+        <button id="close-tab" class="secondary" type="button">Close this tab</button>
+      </div>
+      <p class="hint" id="status" role="status" aria-live="polite">Your login was saved securely in this extension.</p>
+    </main>
+    <script src="success.js"></script>
+  </body>
+</html>

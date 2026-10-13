@@ -2,9 +2,8 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import sanitize from 'sanitize-filename';
-import clone from 'clone';
+import { randomUUID } from 'node:crypto';
 
-import {freePassesPath, freePasses} from './scratch-auth.js';
 import { saveRecent } from './recentUsers.js';
 import { isFinalSaving } from '../index.js';
 
@@ -21,10 +20,8 @@ function sleep(millis) {
 if(!fs.existsSync('storage')) {
     fs.mkdirSync('storage');
 }
-if(!fs.existsSync('storage/sessions/scratchprojects')) {
-    fs.mkdirSync('storage/sessions/scratchprojects',{recursive:true});
-    fs.mkdirSync('storage/sessions/livescratch',{recursive:true});
-}
+fs.mkdirSync('storage/sessions/scratchprojects', { recursive: true });
+fs.mkdirSync('storage/sessions/livescratch', { recursive: true });
 
 const bannedList = () => {
     try {
@@ -38,65 +35,56 @@ const bannedList = () => {
 
 export function saveMapToFolder(obj, dir) {
     // if obj is null, return
-    if(!obj) {console.error('tried to save null object to dir: ' + dir); return;}
+    if(!obj) {console.error('tried to save null object to dir: ' + dir); return false;}
     // make directory if it doesnt exist
     if (!fs.existsSync(dir)){fs.mkdirSync(dir,{recursive:true});}
+    let success = true;
     Object.entries(obj).forEach(entry=>{
         let stringg = JSON.stringify(entry[1]);
-        if(stringg.length >= removeChangesStringLength && entry[1]?.project?.changes) {
-            entry[1] = clone(entry[1],true,2);
-            entry[1].project.changes=[];
-            stringg = JSON.stringify(entry[1]);
-        } //max length is 524288
-
         entry[0] = sanitize(entry[0] + '');
         if(entry[0] == '' || stringg.length > maxStringWriteLength) {
             console.error(`skipping writing file "${entry[0]}" because its too long or noname`);
+            success = false;
             return;
         }
+        let temp;
         try{
             // console.log(`writing ${entry[0]}`)
-            fs.writeFileSync(dir+path.sep+entry[0],stringg);
+            const filename = dir + path.sep + entry[0];
+            temp = `${filename}.${randomUUID()}.tmp`;
+            fs.writeFileSync(temp, stringg);
+            fs.renameSync(temp, filename);
         } catch (e) {
+            if (temp) { try { fs.rmSync(temp); } catch { /* ignored */ } }
+            success = false;
             console.error('Error when saving filename: ' + entry[0]);
             console.error(e);
         }
     });
+    return success;
 }
 
-const removeChangesStringLength = 514280;
 const maxStringWriteLength = 51428000; //absolute max, hopefully never reached
-export async function saveMapToFolderAsync(obj, dir, failsafeEh, dontRemoveChanges) {
+export async function saveMapToFolderAsync(obj, dir) {
     // if obj is null, return
-    if(!obj) {console.warn('tried to save null object to dir: ' + dir); return;}
+    if(!obj) {console.warn('tried to save null object to dir: ' + dir); return false;}
     // make directory if it doesnt exist
     if (!fs.existsSync(dir)){fs.mkdirSync(dir,{recursive:true});}
-    let promises = [];
+    let success = true;
     for (let entry of Object.entries(obj)) {
         let id = sanitize(entry[0] + '');
-        let contentsObject = entry[1];
-        let stringg = JSON.stringify(contentsObject);
-        if(stringg.length >= removeChangesStringLength && contentsObject?.project?.changes && !dontRemoveChanges) {
-            console.log(`removing changes to save length on projectId: ${id}`);
-            contentsObject = clone(contentsObject,true,2);
-            contentsObject.project.changes=[];
-            stringg = JSON.stringify(contentsObject);
-        } //max length is 524288
-        if(failsafeEh) { // to speed up the saving process because we know that the actual save will write changes, and this is quick in case the server crashes
-            if(contentsObject?.project?.changes) {
-                contentsObject = clone(contentsObject,false,2);
-                contentsObject.project.changes=[];
-                stringg = JSON.stringify(contentsObject);
-            }
-        }
+        let stringg = JSON.stringify(entry[1]);
 
         if(!id || stringg.length >= maxStringWriteLength) {
             console.error(`skipping writing project ${id} because its too long or noname`);
-            return;
+            success = false;
+            continue;
         }
         let filename = dir+path.sep+id;
-        await fsp.writeFile(filename,stringg).catch(e=>{console.error('Error when saving filename:');console.error(e);});
+        const temp = `${filename}.${randomUUID()}.tmp`;
+        await fsp.writeFile(temp,stringg).then(() => fsp.rename(temp, filename)).catch(async e=>{success = false;await fsp.rm(temp, { force: true }).catch(() => {});console.error('Error when saving filename:');console.error(e);});
     }
+    return success;
 }
 export function loadMapFromFolder(dir) {
     let obj = {};
@@ -111,7 +99,7 @@ export function loadMapFromFolder(dir) {
                 obj[entry[0]] = JSON.parse(entry[1]); // parse file to object
             } catch (e) {
                 console.error('json parse error on file: ' + dir + path.sep + '\x1b[1m' /* <- bold */ + entry[0] + '\x1b[0m' /* <- reset */);
-                fs.rmSync(dir + path.sep + entry[0]);
+                // Keep damaged data for recovery rather than deleting it during startup.
             }
         });
     return obj;
@@ -148,7 +136,7 @@ export function loadMapFromFolderRecursive(dir) {
                      dirent.name +
                      '\x1b[0m', // reset text
                 );
-                fs.rmSync(fullPath); // Remove the file if parsing fails
+                // Keep damaged data for recovery rather than deleting it during startup.
             }
         } else if (dirent.isDirectory()) {
             // If it's a directory, call the function recursively
@@ -164,12 +152,6 @@ async function saveAsync(sessionManager) {
 
     console.log('saving now...');
     await sleep(10); // in case there is an error that nans lastid out
-
-    const dirPath = path.dirname(lastIdPath);
-    await fsp.mkdir(dirPath, { recursive: true });
-
-    await fsp.writeFile(lastIdPath,(sessionManager.lastId).toString());
-    await fsp.writeFile(freePassesPath,JSON.stringify(freePasses));
 
     // DONT SAVE LIVESCRATCH PROJECTS BECAUSE ITS TOO COMPUTATIONALLY EXPENSIVE AND IT HAPPENS ANYWAYS ON OFFLOAD
 
@@ -215,4 +197,4 @@ export function getBanned(promise = true) {
     }
  
     return Promise.resolve(bannedList());
-} 
+}

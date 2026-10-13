@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import basicAuth from 'express-basic-auth';
 import http from 'http';
-import fs from 'fs'; // <-- FIX: Added missing fs import to prevent shutdown crashes
+import fs from 'fs';
 import { Server } from 'socket.io';
 import sanitize from 'sanitize-filename';
 
@@ -11,8 +11,8 @@ import SessionManager from './utils/sessionManager.js';
 import UserManager from './utils/userManager.js';
 import * as fileStorageUtils from './utils/fileStorage.js';
 import { installCleaningJob } from './utils/removeOldProjects.js';
-import { countRecentShared, recordPopup } from './utils/recentUsers.js'; // Note: Ensure saveRecent is exported here if needed
-import { setPaths, authenticate, fullAuthenticate, freePassesPath, freePasses } from './utils/scratch-auth.js';
+import { countRecentShared, recordPopup, saveRecent } from './utils/recentUsers.js';
+import { setPaths, authenticate, fullAuthenticate } from './utils/scratch-auth.js';
 import initSockets from './WebSockets.js';
 
 const app = express();
@@ -33,14 +33,16 @@ const restartMessage = 'The Livescratch server is restarting. You will lose conn
 const sleep = (millis) => new Promise(res => setTimeout(res, millis));
 
 // --- 1. OPTIMIZED LOAD ROUTINE ---
-console.log('Booting server... Loading project maps from storage into memory...');
-const sessionsObj = fileStorageUtils.loadMapFromFolderRecursive('storage');
-const sessionManager = SessionManager.fromJSON(sessionsObj);
+console.log('Booting server... Projects will load when requested.');
+const savedLastId = Number(fs.existsSync(fileStorageUtils.lastIdPath) ? fs.readFileSync(fileStorageUtils.lastIdPath, 'utf8') : 0);
+const lastId = fs.readdirSync(fileStorageUtils.livescratchPath).reduce((max, name) => {
+    const id = Number(name);
+    return Number.isSafeInteger(id) ? Math.max(max, id) : max;
+}, Number.isSafeInteger(savedLastId) ? savedLastId : 0);
+const sessionManager = SessionManager.fromJSON({ lastId });
 const userManager = new UserManager();
 setPaths(app, userManager, sessionManager);
 
-// Sync initial state
-fileStorageUtils.saveMapToFolder(sessionManager.livescratch, fileStorageUtils.livescratchPath);
 fileStorageUtils.saveLoop(sessionManager);
 
 // --- 2. BUG-FIXED & STABILIZED SHUTDOWN ROUTINE ---
@@ -55,8 +57,9 @@ async function finalSave(sessionManager) {
         console.log('Initiating final database save...');
         
         // FIX: Replaced bare fs calls with imported fs module
-        fs.writeFileSync(fileStorageUtils.lastIdPath, (sessionManager.lastId).toString());
-        fs.writeFileSync(freePassesPath, JSON.stringify(freePasses));
+        const lastIdTemp = `${fileStorageUtils.lastIdPath}.${process.pid}.tmp`;
+        fs.writeFileSync(lastIdTemp, sessionManager.lastId.toString());
+        fs.renameSync(lastIdTemp, fileStorageUtils.lastIdPath);
         
         // Save active project data to disk and free V8 heap memory
         await sessionManager.finalSaveAllProjects(); 
@@ -64,12 +67,7 @@ async function finalSave(sessionManager) {
         // FIX: Corrected namespace reference to fileStorageUtils
         fileStorageUtils.saveMapToFolder(userManager.users, fileStorageUtils.usersPath);
         
-        // Optional: Wrap saveRecent in a try-catch in case it's not exported/defined
-        try {
-            if (typeof saveRecent === 'function') await saveRecent();
-        } catch (e) {
-            console.warn('saveRecent utility was not found or failed to execute.');
-        }
+        await saveRecent();
 
         console.log('Final save complete. Exiting process safely.');
         process.exit(0);
@@ -103,12 +101,11 @@ app.post('/newProject/:scratchId/:owner', (req, res) => {
 
 app.get('/lsId/:scratchId/:uname', (req, res) => {
     const entry = sessionManager.getScratchProjectEntry(req.params.scratchId);
-    const lsId = entry?.blId;
+    const lsId = entry?.lsId;
     if (!lsId) return res.send(null);
     
     const project = sessionManager.getProject(lsId);
     if (!project) {
-        sessionManager.deleteScratchProjectEntry(req.params.scratchId);
         return res.send(null);
     }
     
@@ -141,7 +138,7 @@ app.post('/projectSavedJSON/:lsId/:version', (req, res) => {
     const project = sessionManager.getProject(req.params.lsId);
     if (!project) {
         console.log(`Could not find project: ${req.params.lsId}`);
-        return res.send({ err: "Couldn't find the specified project!" });
+        return res.send({ err: 'Couldn\'t find the specified project!' });
     }
     project.scratchSavedJSON(req.body, parseFloat(req.params.version));
     res.send({ success: 'Successfully saved the project!' });
@@ -174,7 +171,7 @@ app.get('/changesSince/:id/:version', (req, res) => {
             id: project.id,
             jsonVersion,
             clientVersion,
-            oldestChange
+            oldestChange,
         });
     }
 
@@ -337,7 +334,7 @@ app.get('/userProjectsScratch/:user', (req, res) => {
         const ownerProj = project.getOwnersProject(req.params.user);
         return {
             scratchId: ownerProj ? ownerProj.scratchId : project.scratchId,
-            blId: project.id,
+            lsId: project.id,
             title: project.project.title,
             lastTime: project.project.lastTime,
             lastUser: project.project.lastUser,
@@ -350,7 +347,7 @@ app.get('/userProjectsScratch/:user', (req, res) => {
 
 app.put('/leaveScratchId/:scratchId/:username', (req, res) => {
     const project = sessionManager.getScratchToLSProject(req.params.scratchId);
-    if (!fullAuthenticate(req.params.username, req.headers.authorization, project, false)) return res.send({ noauth: true });
+    if (!project || !fullAuthenticate(req.params.username, req.headers.authorization, project.id)) return res.send({ noauth: true });
     
     userManager.unShare(req.params.username, project.id);
     sessionManager.unshareProject(project.id, req.params.username);
@@ -363,10 +360,6 @@ app.put('/leaveLSId/:lsId/:username', (req, res) => {
     userManager.unShare(req.params.username, req.params.lsId);
     sessionManager.unshareProject(req.params.lsId, req.params.username);
     res.send({ success: 'User successfully removed!' });
-});
-
-app.get('/verify/test', (req, res) => {
-    res.send({ verified: authenticate(req.query.username, req.headers.authorization) });
 });
 
 app.get('/share/:id', (req, res) => {

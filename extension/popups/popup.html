@@ -94,13 +94,23 @@
           <label for="privme">Hide that i use LiveScratch</label>
         </div>
       </div>
+
+      <div id="auth-account" hidden>
+        <div>
+          <span class="account-label">LiveScratch account</span>
+          <strong id="auth-username"></strong>
+        </div>
+        <button id="logout" type="button">Log out</button>
+      </div>
+      <span id="logout-status" role="status" aria-live="polite"></span>
     </section>
   </section>
 
       <div id="not-verified" class="popup" style="display: none; align-items: flex-start;">
-        <span class="title">It seems like you're not verified!</span>
-        <span>To verify, open scratch in a new tab and wait for 10 seconds.</span>
-        <span>If you're still not verified contact @Waakul</span>
+        <span class="title">Connect your Scratch account</span>
+        <span>Sign in with Scratch Auth to use LiveScratch collaboration.</span>
+        <button id="scratch-auth-login" class="button" type="button">Sign in with Scratch Auth</button>
+        <span id="scratch-auth-status" role="status" aria-live="polite"></span>
       </div>
 
       <div id="error" class="popup" style="display: none; align-items: flex-start;">
@@ -125,7 +135,7 @@
         <div id="credits" class="flex-horiz">
           <button class="credit button" id="https://github.com/BlockliveScratch/blocklive-legacy/" style="width: 180px;">
             <img src="/img/bl-128.png"/>
-            <span class="credit-name" style="font-size: 12px;">Blocklive <span style="font-size: 10px;">by <a style="font-size: 10px;" href="https://github.com/meechapooch">ilhp10</a> and <a style="font-size: 10px;" href="https://github.com/rgantzos">rgantzos</a><span></span>
+            <span class="credit-name" style="font-size: 12px;">Original project <span style="font-size: 10px;">by <a style="font-size: 10px;" href="https://github.com/meechapooch">ilhp10</a> and <a style="font-size: 10px;" href="https://github.com/rgantzos">rgantzos</a><span></span>
           </button>
         </div>
       </section>

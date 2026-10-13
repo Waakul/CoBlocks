@@ -19,18 +19,21 @@
         },{
             "matches":["https://scratch.mit.edu/*"],
             "css":["scripts/badge.css"],
-            "js":["scripts/verify.js","injectors/all.js"]
+            "js":["injectors/all.js"]
         }
     ],
     "background": {
         "service_worker":"background.js"
     },
     "permissions": [
-        "storage"
+        "storage",
+        "cookies"
     ],
     "host_permissions":[
-        "https://scratch.mit.edu/"
+        "https://scratch.mit.edu/*",
+        "https://livescratchapi.waakul.com/*"
     ],
+    "optional_host_permissions": ["http://*/*", "https://*/*"],
     "optional_permissions":["notifications"],
     "web_accessible_resources" : [{
         "resources":["/scripts/editor.js", "/scripts/badge.js","/scripts/mystuff.js","/img/LogoLiveScratch.svg","/sounds/ping.mp3"],

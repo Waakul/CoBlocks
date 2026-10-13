@@ -1,212 +1,124 @@
-import fs from 'fs';
-export const freePassesPath = 'storage/freePasses.json';
-export const failedAuthLog = {};
-export const secondTimeSuccessAuthLog = {};
-const authProjects = JSON.parse(process.env.AUTH_PROJECTS);
-const admin = JSON.parse(process.env.ADMIN);
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
-
-function logAuth(username, success, word, info) {
-    if (!username) { return; }
-    if (success) {
-        if(word!='authenticate'){console.log(`✅ Successfully ${word}ed user ${username}`);}
-        if (username in failedAuthLog) {
-            delete failedAuthLog[username];
-            secondTimeSuccessAuthLog[username] = true;
-        }
-    } else {
-        failedAuthLog[username] = (failedAuthLog[username] instanceof Array) ? (failedAuthLog[username].length > 10 ? failedAuthLog[username] : [...failedAuthLog[username] ,info]) : [info]; 
-        console.error(`🆘 Failed to ${word} user ${username}`);
-
-    }
-}
-
-let pendingMap = {}; // publicAuthCode : clientSecret 
-
-function sleep(millis) {
-    return new Promise(res => setTimeout(res, millis));
-}
-
-
-let idIndex = 0;
-export function getAuthStats() {
-    return { idIndex, info: getAuthProjectId(), failed: Object.keys(failedAuthLog).length, secondTimeSuccessCount:Object.keys(secondTimeSuccessAuthLog).length };
-}
-
-function generateAuthCode() {
-    return Math.floor(Math.random() * 1000000).toString();
-}
-
-function getAuthProjectId() {
-    return authProjects[idIndex];
-}
-
+// Scratch Auth integration: https://auth.itinerary.eu.org/documentation/using-scratch-auth
+const SCRATCH_AUTH = 'https://auth.itinerary.eu.org';
+const pending = new Map();
+const TTL = 5 * 60_000;
+const attempts = new Map();
 let userManager;
 let sessionManager;
-export function setPaths(app, userManagerr, sessionManagerr) {
-    userManager = userManagerr;
-    sessionManager = sessionManagerr;
-    app.get('/verify/start', (req, res) => { // ?code=000000
-        let debugUname = req.headers.uname;
-        console.log(`starting to authenticate user ${debugUname}`);
+const admins = JSON.parse(process.env.ADMIN || '[]').map(name => name.toLowerCase());
 
-        let clientCode = req.query.code;
-        let verifyCode = generateAuthCode();
-
-        pendingMap[clientCode] = verifyCode;
-        setTimeout(()=>{delete pendingMap[clientCode];},1000 * 60); // delete pending verifications after one minute
-        res.send({ code: verifyCode, project: getAuthProjectId() });
-    });
-
-    const CLOUD_WAIT = 1000 * 5;
-    app.get('/verify/userToken', async (req, res) => { // ?code=000000&method=cloud|CLOUDs
-        try {
-            let clientCode = req.query.code;
-            if (!clientCode) { res.send({ err: 'no client code included' }); return; }
-            let tempCode = pendingMap[clientCode];
-
-            if (!tempCode) {
-                res.send({ err: 'client code not found', clientCode });
-                return;
-            }
-
-            let cloud = await getVerificationCloud(tempCode);
-            if (!cloud || cloud?.err) {
-                console.log(`retrying... ${req.headers.uname}`);
-                await sleep(CLOUD_WAIT);
-                cloud = await getVerificationCloud();
-            }
-            if (cloud?.code == 'nocon') {
-                grantFreePass(req.headers.uname);
-                logAuth(req.headers.uname, true, 'verify', 'server couldn\'t query cloud');
-                res.send({ freepass: true });
-                return;
-            }
-            if (!cloud) {
-                res.send({ err: 'no cloud' });
-                logAuth(req.headers.uname, false, 'verify', 'no cloud var found');
-                return;
-            }
-            console.log('cloud', cloud);
-            delete pendingMap[tempCode];
-
-            let username = cloud.user;
-            let token = userManagerr.getUser(username)?.token;
-            if (!token) {
-                res.send({ err: 'user not found', username });
-                logAuth(username, false, 'verify', 'user not stored in database');
-                return;
-            }
-
-            deleteFreePass(username);
-            res.send({ token, username });
-            logAuth(username, true, 'verify', 'success');
-            return;
-        } catch (err) {
-            next(err);
-        }
-    });
-    app.post('/verify/recordError',(req,res)=>{
-        let message = req.body.msg;
-        let username = req.headers.uname;
-        logAuth(username,false,'set cloud',message);
-        console.log('msg',message);
-        res.end();
-    });
-}
-
-let cachedCloud = [];
-let cachedTime = 0;
-let CLOUD_CHECK_RATELIMIT = 1000 * 2; // every 2 seconds
-
-async function checkCloud() {
-    try {
-        cachedCloud = await (await fetch(`https://clouddata.scratch.mit.edu/logs?projectid=${getAuthProjectId()}&limit=40&offset=0&rand=${Math.random()}`)).json();
-        cachedTime = Date.now();
-        return cachedCloud;
-    } catch (e) {
-        console.error(e);
-        cachedCloud = { code: 'nocon' };
-        idIndex = (idIndex + 1) % authProjects.length;
-        return cachedCloud;
-    }
-}
-let checkCloudPromise = null;
-async function queueCloudCheck() {
-    if (checkCloudPromise) { return checkCloudPromise; }
-    return checkCloudPromise = new Promise(res => setTimeout(async () => {
-        await checkCloud();
-        checkCloudPromise = null;
-        res(cachedCloud);
-    }, CLOUD_CHECK_RATELIMIT));
-}
-async function checkCloudRatelimited() {
-    if (Date.now() - cachedTime < CLOUD_CHECK_RATELIMIT) {
-        return await queueCloudCheck();
-    } else {
-        return await checkCloud();
-    }
-}
-
-async function getVerificationCloud(tempCode) {
-    let vars = await checkCloudRatelimited();
-    if (vars?.code) { return { code: 'nocon' }; };
-    let cloud = vars?.map(cloudObj => ({ content: cloudObj?.value, user: cloudObj?.user }));
-    cloud = cloud.filter(com => String(com.content) == String(tempCode)).reverse()[0];
-    return cloud;
-}
-
-
-// export let freePasses = {} // username : passtime
-
-export let freePasses = fs.existsSync(freePassesPath) ? JSON.parse(fs.readFileSync(freePassesPath)) : {};
-// grant temporary free verification to users if the livescratch server fails to verify
-export function grantFreePass(username) {
-    console.error('granted free pass to user ' + username);
-    username = username?.toLowerCase?.();
-    freePasses[username] = Date.now();
-}
-export function hasFreePass(username) {
-    username = username?.toLowerCase?.();
-    return username in freePasses;
-}
-export function deleteFreePass(username) {
-    username = username?.toLowerCase?.();
-    if (username in freePasses) {
-        console.error('removing free pass from user ' + username);
-        delete freePasses[username];
-    }
-}
-
-
-export function authenticate(username, token, bypassBypass) {
-    if (!bypassBypass) { return true; }
-    if(!username) { console.error(`undefined username attempted to authenticate with token ${token}`); return '*';}
-    let success = hasFreePass(username) || userManager.getUser(username).token == token;
-    if (success) {
-        logAuth(username, true, 'authenticate');
-        // mark as active
-        if(!hasFreePass(username)) { userManager.getUser(username).verified = true; }
-    } else {
-        logAuth(username, false, 'authenticate', `failed to authenticate with token "${token}"`);
-        // console.error(`🟪 User Authentication failed for user: ${username}, bltoken: ${token}`)
-
-    }
-    return success;
-}
-
+export const failedAuthLog = {};
+export const secondTimeSuccessAuthLog = {};
 export let numWithCreds = 0;
 export let numWithoutCreds = 0;
-export function fullAuthenticate(username,token,lsId,bypassAuth) {
-    if(token) {numWithCreds++;}
-    else {numWithoutCreds++;}
-    if(!username) { console.error(`undefined username attempted to authenticate on project ${lsId} with token ${token}`); username = '*';}
-    let userAuth = authenticate(username,token,bypassAuth);
-    let isUserbypassAuth = (!bypassAuth);
-    let authAns = ((userAuth || isUserbypassAuth)) && (sessionManager.canUserAccessProject(username,lsId) ||
-          admin.includes(username));
-    if(!authAns && (userAuth || isUserbypassAuth)) {
-        console.error(`🟪☔️ Project Authentication failed for user: ${username}, lstoken: ${token}, lsId: ${lsId}`);
-    }
-    return authAns;
+
+function validUsername(username) {
+    return typeof username === 'string' && /^[a-zA-Z0-9_-]{3,20}$/.test(username);
+}
+
+function publicBaseUrl() {
+    const raw = process.env.PUBLIC_BASE_URL || 'https://livescratchapi.waakul.com';
+    try {
+        const url = new URL(raw);
+        if (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) return null;
+        return url.href.replace(/\/$/, '');
+    } catch { return null; }
+}
+
+function sweep() {
+    for (const [state, item] of pending) if (Date.now() - item.createdAt > TTL) pending.delete(state);
+    for (const [ip, item] of attempts) if (Date.now() - item.start > 60_000) attempts.delete(ip);
+}
+
+export function getAuthStats() {
+    return { pending: pending.size, failed: Object.keys(failedAuthLog).length };
+}
+
+export function setPaths(app, users, sessions) {
+    userManager = users;
+    sessionManager = sessions;
+
+    app.post('/auth/scratch/start', (req, res) => {
+        sweep();
+        const base = publicBaseUrl();
+        if (!base) return res.status(503).json({ err: 'Invalid PUBLIC_BASE_URL configuration.' });
+        const ip = req.ip;
+        const bucket = attempts.get(ip) || { count: 0, start: Date.now() };
+        if (bucket.count >= 5) return res.status(429).json({ err: 'Too many login attempts. Try again in a minute.' });
+        bucket.count++;
+        attempts.set(ip, bucket);
+        const state = randomBytes(32).toString('hex');
+        const redirect = `${base}/auth/scratch/callback?state=${state}`;
+        pending.set(state, { redirect, createdAt: Date.now(), status: 'waiting' });
+        const loginUrl = new URL('/auth/', SCRATCH_AUTH);
+        loginUrl.searchParams.set('redirect', Buffer.from(redirect).toString('base64'));
+        loginUrl.searchParams.set('name', 'LiveScratch');
+        res.json({ state, url: loginUrl.href });
+    });
+
+    app.get('/auth/scratch/callback', async (req, res) => {
+        const item = pending.get(req.query.state);
+        if (!item || Date.now() - item.createdAt > TTL || item.status !== 'waiting') return res.status(400).send('This login expired. Please start again from LiveScratch.');
+        if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the login.');
+        try {
+            const url = new URL('/api/auth/verifyToken', SCRATCH_AUTH);
+            url.searchParams.set('privateCode', req.query.privateCode);
+            const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!response.ok) throw new Error(`Scratch Auth returned ${response.status}`);
+            const data = await response.json();
+            if (data.valid !== true || data.redirect !== item.redirect || !validUsername(data.username)) return res.status(403).send('Scratch Auth could not verify this login.');
+            const user = userManager.getUser(data.username);
+            user.verified = true;
+            user.token = userManager.token();
+            if (!userManager.persistUser(data.username)) throw new Error('Could not save authenticated user');
+            item.status = 'complete';
+            item.username = data.username;
+            res.redirect(303, `/auth/scratch/complete?state=${req.query.state}`);
+        } catch (error) {
+            console.error('Scratch Auth verification failed:', error);
+            res.status(503).send('Scratch Auth is temporarily unavailable. Please try again.');
+        }
+    });
+
+    app.get('/auth/scratch/complete', (req, res) => {
+        const item = pending.get(req.query.state);
+        if (!item || item.status !== 'complete') return res.status(400).send('This login is incomplete or expired.');
+        res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>LiveScratch login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Signed in to LiveScratch</h1><p>You can close this tab and return to Scratch.</p></body></html>');
+    });
+
+    app.post('/auth/scratch/finish', (req, res) => {
+        const item = pending.get(req.body?.state);
+        if (!item || item.status !== 'complete' || Date.now() - item.createdAt > TTL) return res.status(400).json({ err: 'Login is incomplete or expired.' });
+        pending.delete(req.body.state);
+        const user = userManager.findUser(item.username);
+        if (!user?.verified) return res.status(403).json({ err: 'Login failed.' });
+        res.json({ username: user.username, token: user.token });
+    });
+
+    app.post('/auth/logout', (req, res) => {
+        const username = req.body?.username;
+        if (!authenticate(username, req.headers.authorization)) return res.status(401).json({ err: 'Invalid login.' });
+        const user = userManager.findUser(username);
+        user.verified = false;
+        user.token = userManager.token();
+        if (!userManager.persistUser(username)) return res.status(500).json({ err: 'Could not save logout.' });
+        res.status(204).send();
+    });
+}
+
+export function authenticate(username, token) {
+    if (!validUsername(username) || typeof token !== 'string' || !token) return false;
+    const user = userManager.findUser(username);
+    if (!user?.verified || typeof user.token !== 'string') return false;
+    const expected = Buffer.from(user.token);
+    const supplied = Buffer.from(token);
+    return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+}
+
+export function fullAuthenticate(username, token, lsId) {
+    if (token) numWithCreds++; else numWithoutCreds++;
+    if (!authenticate(username, token) || !lsId) return false;
+    return admins.includes(username.toLowerCase()) || sessionManager.canUserAccessProject(username, lsId);
 }

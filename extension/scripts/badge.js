@@ -22,7 +22,7 @@
     const logoUrl2 = document.querySelector('.livescratch-ext-2').dataset.logoUrl;
     const exIdBadges = document.querySelector('.livescratch-ext-2').dataset.exId;
 
-    async function displayBLUsers2(element) {
+    async function displayLSUsers(element) {
         let amIPriv = null;
         Array.from(element.querySelectorAll(selectors)).forEach( nameElem => {
             if (nameElem.seen) return;
@@ -31,7 +31,7 @@
 
             chrome.runtime.sendMessage(exIdBadges, { meta: 'getUsernamePlus' }, async function (info) {
                 let username = info.uname;
-                let token = info.currentBlToken;
+                let token = info.currentLsToken;
                 let apiUrl = info.apiUrl;
 
                 if (nameElem.innerText==username) {
@@ -100,7 +100,7 @@
             });
         });
     }
-    displayBLUsers2(document);
+    displayLSUsers(document);
 
 
 
@@ -129,7 +129,7 @@
 
     // Create an observer instance linked to the callback function
     // const observer = new MutationObserver((a, b,) => { a.forEach(e => displayBLUsers(document.body)) });
-    const observer2 = new MutationObserver((a, b) => { a.forEach(e => displayBLUsers2(e.target)); });
+    const observer2 = new MutationObserver((a, b) => { a.forEach(e => displayLSUsers(e.target)); });
 
     // Start observing the target node for configured mutations
     observer2.observe(targetNode2, config2);

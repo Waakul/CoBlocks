@@ -19,30 +19,31 @@ export default class initSockets {
                 this.sessionManager.join(client,data.id,data.username);
                 if(data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
             },'joinSessions':(data,client)=>{
-                if(!fullAuthenticate(data.username,data.token,data.id)) {client.send({noauth:true}); return;}
-    
-                data.ids.forEach(id=>{this.sessionManager.join(client,id,data.username);});
+                if (!Array.isArray(data.ids)) return;
+                data.ids.slice(0, 50).forEach(id => {
+                    if (fullAuthenticate(data.username, data.token, id)) this.sessionManager.join(client, id, data.username);
+                });
                 if(data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
             },
             'leaveSession':(data,client)=>{
                 this.sessionManager.leave(client,data.id);
             },
             'projectChange':(data,client,callback)=>{
-                if(!fullAuthenticate(data.username,data.token,data.blId)) {client.send({noauth:true}); return;}
+                if(!fullAuthenticate(data.username,data.token,data.lsId)) {client.send({noauth:true}); return;}
     
-                this.sessionManager.projectChange(data.blId,data,client);
-                callback(this.sessionManager.getVersion(data.blId));
+                this.sessionManager.projectChange(data.lsId,data,client);
+                callback(this.sessionManager.getVersion(data.lsId));
             },
             'setTitle':(data,client)=>{
-                if(!fullAuthenticate(data.username,data.token,data.blId)) {client.send({noauth:true}); return;}
+                if(!fullAuthenticate(data.username,data.token,data.lsId)) {client.send({noauth:true}); return;}
     
-                let project = this.sessionManager.getProject(data.blId);
+                let project = this.sessionManager.getProject(data.lsId);
                 if(!project) {return;}
                 project.project.title = data.msg.title;
                 project.session.sendChangeFrom(client,data.msg,true);
             },
             'setCursor':(data,client)=>{ // doesnt need to be authenticated because relies on pre-authenticated join action
-                let project = this.sessionManager.getProject(data.blId);
+                let project = this.sessionManager.getProject(data.lsId);
                 if(!project) {return;}
                 let cursor = project.session.getClientFromSocket(client)?.cursor;
                 if(!cursor) {return;}
@@ -56,9 +57,9 @@ export default class initSockets {
                 delete data.msg.msg.linkify;
                 let text = String(data.msg.msg.text);
                 let sender = data.msg.msg.sender;
-                let project = this.sessionManager.getProject(data.blId);
+                let project = this.sessionManager.getProject(data.lsId);
     
-                if(!fullAuthenticate(sender,data.token,data.blId,true)) {client.send({noauth:true}); return;}
+                if(!fullAuthenticate(sender,data.token,data.lsId,true)) {client.send({noauth:true}); return;}
                 if(admin.includes(sender?.toLowerCase()) && text.startsWith(BROADCAST_KEYWORD)) {
                     let broadcast=text.slice(BROADCAST_KEYWORD.length);
                     console.log(`broadcasting message to all users: "${broadcast}" [${sender}]`);
@@ -101,7 +102,7 @@ export default class initSockets {
 
                 // record analytic first to stop reloading after project leave
                 analytic: try{
-                    let id = data.blId ?? data.id ?? null;
+                    let id = data.lsId ?? data.id ?? null;
                     if (!id) { break analytic; }
                     let project = this.sessionManager.getProject(id);
                     if (!project) { break analytic; }

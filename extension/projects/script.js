@@ -4,13 +4,13 @@ document.querySelector('#version').innerHTML = 'v'+version;
 async function getProjects() {
     let info = await chrome.runtime.sendMessage({meta:'getUsernamePlus'});
     let apiUrl = info.apiUrl;
-    let blToken = info.token;
+    let lsToken = info.token;
     let uname = info.uname;
  
     var data = await (
         await fetch(
             `${apiUrl}/userProjectsScratch/${uname}/`,
-            {headers:{authorization:blToken}},
+            {headers:{authorization:lsToken}},
         )
     ).json();
     if (data.length === 0) {

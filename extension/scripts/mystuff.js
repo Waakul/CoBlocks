@@ -10,9 +10,9 @@ function mutationCallback() {
     let toDelete = [];
     queryList.forEach(query => {
         let elem = document.querySelector(query.query);
-        if (elem && !elem.blSeen) {
+        if (elem && !elem.lsSeen) {
             if (query.once) { toDelete.push(query); }
-            else { elem.blSeen = true; }
+            else { elem.lsSeen = true; }
             query.callback(elem);
         }
     });
@@ -29,14 +29,14 @@ function getObj(query) {
 }
 function listenForObj(query, callback) {
     let obj = document.querySelector(query);
-    if (obj) { obj.blSeen = true; callback(obj); }
+    if (obj) { obj.lsSeen = true; callback(obj); }
     queryList.push({ query, callback, once: false });
 }
 
 
 
 
-// BLM!!!!
+// LSM!!!!
 function getBlMyStuff() {
     return new Promise((promRes) => {
         chrome.runtime.sendMessage(exId, { meta: 'myStuff' }, promRes);
@@ -44,17 +44,17 @@ function getBlMyStuff() {
 }
 
 function leaveId(id, div) {
-    console.log(id, blProjectDivs);
-    if (id in blProjectDivs) {
-        document.querySelector('#main-content > div.media-list > ul').insertBefore(blProjectDivs[id], div);
+    console.log(id, lsProjectDivs);
+    if (id in lsProjectDivs) {
+        document.querySelector('#main-content > div.media-list > ul').insertBefore(lsProjectDivs[id], div);
     }
     div.remove();
 }
 
-function sendLeave(scratchId, blId) {
-    blMySTuff.splice(blMySTuff.findIndex(item => (item.scratchId == scratchId)), 1);
-    if (blId) {
-        chrome.runtime.sendMessage(exId, { meta: 'leaveLSId', blId });
+function sendLeave(scratchId, lsId) {
+    lsMySTuff.splice(lsMySTuff.findIndex(item => (item.scratchId == scratchId)), 1);
+    if (lsId) {
+        chrome.runtime.sendMessage(exId, { meta: 'leaveLSId', lsId });
     } else {
         chrome.runtime.sendMessage(exId, { meta: 'leaveScratchId', scratchId });
     }
@@ -75,10 +75,10 @@ function sanitize(string) {
     return string.replace(reg, (match) => (map[match]));
 }
 
-function getbox(blId, title, scratchId, lastModified, lastModBy, projectExists, online) {
+function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, online) {
     scratchId = sanitize(scratchId);
     title = sanitize(title);
-    blId = sanitize(blId);
+    lsId = sanitize(lsId);
     lastModBy = sanitize(lastModBy);
 
     let gunkId = Math.random().toString(36).substring(2);
@@ -111,7 +111,7 @@ function getbox(blId, title, scratchId, lastModified, lastModBy, projectExists, 
 
       </div>
       <div class="media-action">
-	      <div><a class="media-trash" style="color:rgb(88, 193, 152)" onclick="leaveId(${scratchId},this.parentElement.parentElement.parentElement.parentElement);sendLeave(${scratchId},${blId})">${projectExists ? 'Unlink' : 'Leave'}</a></div>
+	      <div><a class="media-trash" style="color:rgb(88, 193, 152)" onclick="leaveId(${scratchId},this.parentElement.parentElement.parentElement.parentElement);sendLeave(${scratchId},${lsId})">${projectExists ? 'Unlink' : 'Leave'}</a></div>
       </div>
     </div>`;
 }
@@ -266,7 +266,7 @@ async function convertToLivescratch(listItem, projectObj) {
 
     atts.buttonText = listItem.children[0].children[2].children[0].children[0].innerText;
     listItem.children[0].children[2].children[0].children[0].innerText = 'Unlink';
-    listItem.children[0].children[2].children[0].children[0].onclick = (e) => {cleanseOfLivescratchness(projectObj.scratchId, listItem); sendLeave(projectObj.scratchId, projectObj.blId); e.stopPropagation();  };
+    listItem.children[0].children[2].children[0].children[0].onclick = (e) => {cleanseOfLivescratchness(projectObj.scratchId, listItem); sendLeave(projectObj.scratchId, projectObj.lsId); e.stopPropagation();  };
     atts.title = listItem.children[0].children[1].children[0].children[0].innerText;
     listItem.children[0].children[1].children[0].children[0].innerText = projectObj.title;
 
@@ -294,7 +294,7 @@ function cleanseOfLivescratchness(scratchId, listItem) {
 
 function addProject(projectObj, projectExists) {
     let newBox = document.createElement('li');
-    newBox.innerHTML = getbox(projectObj.blId, projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online);
+    newBox.innerHTML = getbox(projectObj.lsId, projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online);
     document.querySelector('ul.media-list').insertBefore(newBox, document.querySelector('ul.media-list').firstChild);
 }
 
@@ -327,50 +327,50 @@ function getWithPic(user) {
 
 ////////// RUN ON START! ///////////
 
-let blMySTuff;
-let blMyStuffMap = {};
-let blProjectDivs = {};
+let lsMySTuff;
+let lsMyStuffMap = {};
+let lsProjectDivs = {};
 let projectLoadFailed = false;
 async function onTabLoad() {
-    blMySTuff = await getBlMyStuff();
-    if (blMySTuff?.noauth) { projectLoadFailed = true; return false; }
+    lsMySTuff = await getBlMyStuff();
+    if (lsMySTuff?.noauth) { projectLoadFailed = true; return false; }
     listenForObj('ul.media-list', (list) => {
         if (!document.querySelector('#tabs > li.first.active')) { return; } // return if "all projects" not selected
-        blMyStuffMap = {};
-        blMySTuff.forEach(projObj => { blMyStuffMap[projObj.scratchId] = projObj; });
+        lsMyStuffMap = {};
+        lsMySTuff.forEach(projObj => { lsMyStuffMap[projObj.scratchId] = projObj; });
         let toDelete = [];
         for (let child of list.children) {
             let scratchId = getId(child);
-            let livescratchProject = blMyStuffMap[scratchId];
+            let livescratchProject = lsMyStuffMap[scratchId];
             if (livescratchProject) {
                 if (Date.now() - livescratchProject.lastTime < 1000 * 60 * 60 * 2) { // if project was edited less than 2 hours ago
                     toDelete.push(child);
-                    blProjectDivs[scratchId] = child;
+                    lsProjectDivs[scratchId] = child;
                 } else {
                     convertToLivescratch(child, livescratchProject);
-                    delete blMyStuffMap[scratchId];
+                    delete lsMyStuffMap[scratchId];
                 }
             }
         }
         toDelete.forEach(elem => { elem.remove(); });
-        let leftOver = Object.values(blMyStuffMap);
-        leftOver.sort((a, b) => { b.lastTime - a.lastTime; });
+        let leftOver = Object.values(lsMyStuffMap);
+        leftOver.sort((a, b) => b.lastTime - a.lastTime);
         for (let projObj of leftOver) {
             console.log(projObj.scratchId);
-            addProject(projObj, projObj.scratchId in blProjectDivs);
+            addProject(projObj, projObj.scratchId in lsProjectDivs);
         }
     });
 }
 
 
 chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) => {
-    if (!userData.currentBlToken) {
+    if (!userData.currentLsToken) {
 
         let newVerified = false;
         addStartVerificationCallback(() => {
             document.querySelector('#verifying')?.remove();
             document.querySelector('#unverified')?.remove();
-            document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="blBanner" id="verifying" style="background:#ea47ff; color:white;"><img height=15 src="https://upload.wikimedia.org/wikipedia/commons/a/ad/YouTube_loading_symbol_3_%28transparent%29.gif"/> Livescratch is verifying your account ...<div>');
+            document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#ea47ff; color:white;">LiveScratch sign in is in progress…</div>');
         });
         addEndVerificationCallback(async (success, message) => {
             document.querySelector('#verifying')?.remove();
@@ -378,17 +378,12 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
             if (success) {
                 newVerified = true;
                 removeHideLivescratchButton();
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="blBanner" id="blSuccess" style="background:#77da77; color:white;"> ✅ You\'re verified! <div>');
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="lsSuccess" style="background:#77da77; color:white;"> ✅ You\'re verified! <div>');
                 if (projectLoadFailed) { onTabLoad(); }
                 removeHideLivescratchButton();
-                setTimeout(() => { document.querySelector('#blSuccess').remove(); }, 1000 * 2);
+                setTimeout(() => { document.querySelector('#lsSuccess')?.remove(); }, 1000 * 2);
             } else {
-                let error = await chrome.runtime.sendMessage(exId,{meta:'getVerifyError'});
-                if(error=='no cloud') {
-                    document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="blBanner" id="unverified" style="background:red; color:white;"><span id="bigx" style="display:none; padding:3px; border-radius:50%; background:lightpink; color:maroon; cursor:pointer;" onclick="document.querySelector(\'#unverified\').remove()">&nbspx&nbsp</span>⚠️ Livescratch could not verify your account because the cloud data \'set\' action failed. Scratch\'s cloud data servers might be down, causing this issue. Click \'hide verify\' below to silence this message.');
-                } else {
-                    document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="blBanner" id="unverified" style="background:red; color:white;"><span id="bigx" style="display:none; padding:3px; border-radius:50%; background:lightpink; color:maroon; cursor:pointer;" onclick="document.querySelector(\'#unverified\').remove()">&nbspx&nbsp</span>⚠️ Livescratch could not verify your account. Reload the tab in a few seconds. If this issue continues, contact @Waakul<span style="text-decoration:underline; cursor:pointer; color:blue;" onclick="chrome.runtime.sendMessage(exId,{meta:\'getVerifyError\'},err=>prompt(\'This error occured during client verification. Comment it on @Waakul\',err))">See Error Msg</span>');
-                }
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">LiveScratch sign in failed. Open the extension popup and try Scratch Auth again.</div>');
         
             }
         });
@@ -399,20 +394,12 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
         chrome.runtime.sendMessage(exId, { meta: 'verifying' }, (verifying) => {
             console.log('vf',verifying);
             console.log('verifying',verifying);
-            if (verifying=='nocon'){
-                // defaultAddHideLivescratchButton()
-                let apiURL = '';
-                chrome.runtime.sendMessage(exId, {meta: 'getAPI-URL'}, (response) => {
-                    apiURL = response.apiURL;
-                });
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', `<div class="blBanner" id="unverified" style="background:red; color:white;">⚠️ Cant connect to livescratch servers at ${apiURL} <a href="https://status.uptime-monitor.io/6499c89d4bfb79bb5f20ac4d" target="_blank">Check Uptime</a> or <a onclick="(()=>{chrome.runtime.sendMessage(exId,{meta:'dontShowVerifyError',val:false}); addHideLivescratchButton(false);})()">Dont show this message again</a><div>`);
-            }
-            else if (verifying) {
+            if (verifying) {
                 document.querySelector('#verifying')?.remove();
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="blBanner" id="verifying" style="background:#ea47ff; color:white;"><img height=15 src="https://upload.wikimedia.org/wikipedia/commons/a/ad/YouTube_loading_symbol_3_%28transparent%29.gif"/> Livescratch is verifying your account ...<div>');
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#ea47ff; color:white;">LiveScratch sign in is in progress…</div>');
             } else {
                 if (newVerified) { return; }
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="blBanner" id="unverified" style="background:red; color:white;">⚠️ Livescratch could not verify your account. Reload the tab in a few seconds. If this issue continues, contact @Waakul<div>');
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">Connect LiveScratch with Scratch Auth from the extension popup.</div>');
             }
         });
 
@@ -431,21 +418,21 @@ function addEndVerificationCallback(cb) {
 onTabLoad();
 
 
-var BLVon = false;
+var LSVon = false;
 function addHideLivescratchButton(on) {
-    window.BLVon = on;
+    window.LSVon = on;
     let innerds = on ? 'Hide Verify ^' : 'Show Verify';
     document.getElementById('hideBLButton')?.remove();
     document.querySelector('#main-content > div.action-bar.scroll > div > div').insertAdjacentHTML('afterend', `
     <span class="hideButton" id="hideBLButton" style="text-decoration:underline; cursor:pointer;
   color:lightblue" onclick="(()=>{chrome.runtime.sendMessage(exId,{meta:'dontShowVerifyError',val:${!on}}); toggleHideLivescratch()})();">${innerds}</span>`);
 
-    document.getElementById('blBannerCSS')?.remove();
-    document.head.insertAdjacentHTML('afterbegin', on ? '<style id="blBannerCSS">.blBanner{display:default}</style>' : '<style id="blBannerCSS">.blBanner{display:none}</style>');
+    document.getElementById('lsBannerCSS')?.remove();
+    document.head.insertAdjacentHTML('afterbegin', on ? '<style id="lsBannerCSS">.lsBanner{display:default}</style>' : '<style id="lsBannerCSS">.lsBanner{display:none}</style>');
 
 }
 function toggleHideLivescratch() {
-    addHideLivescratchButton(!BLVon);
+    addHideLivescratchButton(!LSVon);
 }
 let actuallyShown = false;
 function defaultAddHideLivescratchButton(hideButton) {

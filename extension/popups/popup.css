@@ -486,6 +486,61 @@ hr {
   display: flex;
 }
 
+#auth-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--Sub);
+  border-radius: 8px;
+  background: var(--Sub-Semi);
+}
+
+#auth-account[hidden] {
+  display: none;
+}
+
+#auth-account > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-label,
+#logout-status {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#auth-username {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+#logout {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border: 1px solid rgba(202, 55, 55, 0.45);
+  border-radius: 7px;
+  color: #b52626;
+  background: rgba(255, 95, 95, 0.12);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#logout:hover {
+  background: rgba(255, 95, 95, 0.22);
+}
+
+#logout:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 #settings-dropdown {
   cursor: pointer;
 }

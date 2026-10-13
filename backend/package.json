@@ -5,6 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "test": "node --test",
     "start": "pm2 start ./ecosystem.config.cjs",
     "stop": "pm2 stop LiveScratch",
     "delete": "pm2 delete LiveScratch"

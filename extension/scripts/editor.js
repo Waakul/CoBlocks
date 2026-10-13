@@ -31,9 +31,9 @@ function mutationCallback() {
     let toDelete = [];
     queryList.forEach(query=>{
         let elem = document.querySelector(query.query);
-        if(elem && !elem.blSeen) {
+        if(elem && !elem.lsSeen) {
             if(query.once){toDelete.push(query);}
-            else {elem.blSeen = true;}
+            else {elem.lsSeen = true;}
             query.callback(elem);
         }
     });
@@ -50,7 +50,7 @@ function getObj(query) {
 }
 function listenForObj(query,callback) {
     let obj = document.querySelector(query);
-    if(obj) {obj.blSeen = true; callback(obj);}
+    if(obj) {obj.lsSeen = true; callback(obj);}
     queryList.push({query,callback,once:false});
 }
 
@@ -79,7 +79,7 @@ function liveMessage(message,res) {
     reconnectIfNeeded();
     let msg = message;
     if(msg.meta=='blockly.event' || msg.meta=='sprite.proxy'||msg.meta=='vm.blockListen'||msg.meta=='vm.shareBlocks' ||msg.meta=='vm.replaceBlocks' ||msg.meta=='vm.updateBitmap'||msg.meta=='vm.updateSvg' ||msg.meta=='version++') {
-        blVersion++;
+        lsVersion++;
     }
     port.postMessage(message,res);
 }
@@ -102,7 +102,7 @@ function reconnectIfNeeded() {
         isConnected = (!!port); 
         if(isConnected){
             registerChromePortListeners();
-            liveMessage({meta:'myId',id:blId});
+            liveMessage({meta:'myId',id:lsId});
             liveMessage({meta:'joinSession'}); // TODO: maybe do away with sending join message?
             if(readyToRecieveChanges){getAndPlayNewChanges();}
         }
@@ -114,8 +114,8 @@ function reconnectIfNeeded() {
 var livescratchServer;
 
 
-let blId = '';
-blVersion = 0;
+let lsId = '';
+lsVersion = 0;
 scratchId = location.pathname.split('/')[2]; //TODO: use better method?
 // scratchId = '644532638'
 let pauseEventHandling = false;
@@ -128,7 +128,7 @@ let reloadAfterRestart=false;
 async function startLivescratch(creatingNew) {
     livescratchDeleted=false;
     pauseEventHandling = true;
-    liveMessage({meta:'myId',id:blId});
+    liveMessage({meta:'myId',id:lsId});
     injectLoadingOverlay();
 
     activateLivescratch();
@@ -137,12 +137,12 @@ async function startLivescratch(creatingNew) {
     if(creatingNew || store.getState().scratchGui.projectState.loadingState.startsWith('SHOWING')) {
         console.log('project already loaded!');
         if(projectReplaceInitiated) { return; }
-        await joinExistingLivescratch(blId);
+        await joinExistingLivescratch(lsId);
         pauseEventHandling = false;
     } else {
         vm.runtime.on('PROJECT_LOADED', async () => { // todo catch this running after project loads
             if(projectReplaceInitiated) { return; }
-            await joinExistingLivescratch(blId);
+            await joinExistingLivescratch(lsId);
             pauseEventHandling = false;
         });
     }
@@ -174,13 +174,13 @@ async function onTabLoad() {
     }
     store = reactLoopInst.dependencies.firstContext.memoizedValue.store;
     addButtonInjectors();
-    blId = isNaN(parseFloat(location.pathname.split('/')[2])) ? '' : await getBlocklyId(scratchId); //todo: should this use the result of the getBlId function, or a more specific endpoint to authenticating project joining?
-    if(!blId) {
+    lsId = isNaN(parseFloat(location.pathname.split('/')[2])) ? '' : await getLivescratchId(scratchId); //todo: should this use the result of the getLsId function, or a more specific endpoint to authenticating project joining?
+    if(!lsId) {
         chrome.runtime.sendMessage(exId,{meta:'callback'},(request) => { if(request.meta == 'initLivescratch') { 
-            blId = request.blId; 
+            lsId = request.lsId;
             startLivescratch(true);}});
     }
-    if(!!blId) {
+    if(!!lsId) {
         startLivescratch();
     } else {
     }
@@ -210,12 +210,12 @@ async function joinExistingLivescratch(id) {
         console.log('loading scratch project inpoint',inpoint);
         revertJSON = vm.toJSON();
         await vm.loadProject(projectJson);
-        blVersion = inpoint.version;
+        lsVersion = inpoint.version;
     } catch (e) {
         finishBLLoadingAnimation();
-        prompt(`Scratch couldn't load the project JSON we had saved for this project. Clicking OK or EXIT will attempt to load the project from the changelog, which may take a moment. \nError: \n${e} \n\nSend this livescratch id to @Waakul on scratch:`,`${blId};`);
+        prompt(`Scratch couldn't load the project JSON we had saved for this project. Clicking OK or EXIT will attempt to load the project from the changelog, which may take a moment. \nError: \n${e} \n\nSend this livescratch id to @Waakul on scratch:`,`${lsId};`);
         startBLLoadingAnimation();
-        // prompt(`Livescratch cannot load project data! The scratch api might be blocked by your network. Clicking OK or EXIT will attempt to load the project from the changelog, which may take a moment. \n\nHere are your ids if you want to report this to @ilhp10:`,`LIVESCRATCH_ID: ${blId}; SCRATCH_REAL_ID: ${scratchId}; INPOINT_ID: ${inpoint.scratchId}`)
+        // prompt(`Livescratch cannot load project data! The scratch api might be blocked by your network. Clicking OK or EXIT will attempt to load the project from the changelog, which may take a moment. \n\nHere are your ids if you want to report this to @ilhp10:`,`LIVESCRATCH_ID: ${lsId}; SCRATCH_REAL_ID: ${scratchId}; INPOINT_ID: ${inpoint.scratchId}`)
     }
 
     console.log('syncing new changes, editingTarget: ',vm.editingTarget);
@@ -241,44 +241,44 @@ function removeLivescratchButtons() {
     try{
 
         // document.querySelector("#app > div > div.gui_menu-bar-position_3U1T0.menu-bar_menu-bar_JcuHF.box_box_2jjDp > div.menu-bar_main-menu_3wjWH > livescratchcontainer")?.remove()
-        document.querySelector('#blRevert')?.remove();
+        document.querySelector('#lsRevert')?.remove();
         document.querySelector('#noRefreshPanel')?.remove();
-        document.querySelector('#blUsersPanel')?.remove();
+        document.querySelector('#lsUsersPanel')?.remove();
         document.querySelector('#ls-chat')?.remove();
 
-        blDropdown.style.display = 'none';
-        livescratchButton.onclick = blActivateClick;
-        blId=null;
+        lsDropdown.style.display = 'none';
+        livescratchButton.onclick = lsActivateClick;
+        lsId=null;
 
     } catch(e) {console.error(e);}
 }
 
-function getBlocklyId(scratchId) {
+function getLivescratchId(scratchId) {
     return new Promise((promRes)=>{
-        chrome.runtime.sendMessage(exId,{meta:'getBlId',scratchId},promRes);
+        chrome.runtime.sendMessage(exId,{meta:'getLsId',scratchId},promRes);
     });
 }
 // function getInpoint(livescratchId) {
-//     return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getInpoint',blId:livescratchId},res)})     
+//     return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getInpoint',lsId:livescratchId},res)})
 // }
 function getJson(livescratchId) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getJson',blId:livescratchId},res);});     
+    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getJson',lsId:livescratchId},res);});
 }
-function getChanges(blId,version) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getChanges',blId,version},res);});
+function getChanges(lsId,version) {
+    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getChanges',lsId,version},res);});
 }
-function fetchTitle(blId) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getTitle',blId},res);});
+function fetchTitle(lsId) {
+    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getTitle',lsId},res);});
 }
 
 function setTopbarButtonVisibility() {
     try{
-        if(!blId || typeof blCursors == 'undefined' || Object.entries(Object(blCursors)).length==0) {document.getElementById('blUsersPanel').style.visibility = 'hidden';}
-        else {document.getElementById('blUsersPanel').style.visibility = 'visible';}
+        if(!lsId || typeof lsCursors == 'undefined' || Object.entries(Object(lsCursors)).length==0) {document.getElementById('lsUsersPanel').style.visibility = 'hidden';}
+        else {document.getElementById('lsUsersPanel').style.visibility = 'visible';}
     } catch(e) {console.error(e);}
     try{
-        let chatElem = document.getElementById('blChatButton');
-        if(!blId) {chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none';}
+        let chatElem = document.getElementById('lsChatButton');
+        if(!lsId) {chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none';}
         else {chatElem.style.visibility = 'visible'; chatElem.style.display = 'flex';}
     } catch(e) {console.error(e);}
 }
@@ -297,7 +297,7 @@ async function activateLivescratch() {
         for (let i = 0; i < changes.length; i++) {
             await livescratchListener(changes[i]);
         }
-        if(changes.currentVersion){blVersion = changes.currentVersion;}
+        if(changes.currentVersion){lsVersion = changes.currentVersion;}
         pauseEventHandling = false;
 
         vm.emitWorkspaceUpdate();
@@ -307,11 +307,11 @@ async function activateLivescratch() {
     // set scope exposed functions    
     getAndPlayNewChanges = async ()=>{
 
-        console.log('syncing since version: ' +  blVersion); 
-        fetchTitle(blId).then(title=>setTitle(title)); // set title
+        console.log('syncing since version: ' +  lsVersion);
+        fetchTitle(lsId).then(title=>setTitle(title)); // set title
 
         // sync all other project changes
-        changes = await getChanges(blId,blVersion);
+        changes = await getChanges(lsId,lsVersion);
         if(typeof BL_UTILS != 'undefined' && BL_UTILS.isDragging()) {
             console.log('queing it for later');
             playAfterDragStop.push({meta:'resyncCached',changes});
@@ -348,23 +348,23 @@ async function activateLivescratch() {
         }
     
         // console.log('recieved message',msg)
-        if(!!msg.version){blVersion = msg.version-1;} // TODO: possibly disable this
+        if(!!msg.version){lsVersion = msg.version-1;} // TODO: possibly disable this
         try{
             if(msg.meta == 'resyncCached') {
             // remember to await shit
                 await playChanges(msg.changes);
             } else if (msg.meta=='sprite.proxy') {
-                blVersion++;
+                lsVersion++;
                 await proxyActions[msg.data.name](...(['linguini'].concat(msg.data).concat(msg.data.args)));
             } else if (msg.meta =='vm.blockListen') {
-                blVersion++;
+                lsVersion++;
                 onBlockRecieve(msg);
             } else if (msg.meta == 'messageList') {
                 for (let i = 0; i < msg.messages.length; i++) {
                     await livescratchListener(msg.messages[i]);
                 }
             } else if (msg.meta == 'vm.shareBlocks') {
-                blVersion++;
+                lsVersion++;
                 doShareBlocksMessage(msg);        
             } else if (msg.meta == 'vm.replaceBlocks') {
                 if(!nameToTarget(msg.target)?.blocks) {
@@ -373,24 +373,24 @@ async function activateLivescratch() {
                 }
                 else {
                 // console.log('doing')
-                    blVersion++;
+                    lsVersion++;
                     replaceBlockly(msg);
                 }
             } else if(msg.meta == 'vm.updateBitmap') { // TODO: Do this better-- pass in changes from bg script
-                blVersion++;
+                lsVersion++;
                 await updateBitmap(msg);
             } else if(msg.meta == 'vm.updateSvg') { // TODO: Do this better-- pass in changes from bg script
-                blVersion++;
+                lsVersion++;
                 await updateSvg(msg);
             } else if(msg.meta=='yourVersion') {
                 console.log('version ponged: ' + msg.version);
-                blVersion = msg.version;
+                lsVersion = msg.version;
             } else if(msg.meta == 'setTitle') {
                 setTitle(msg.title);
             } else if(msg.meta == 'resync') { // TODO: Do this better-- pass in changes from bg script
                 if(readyToRecieveChanges){getAndPlayNewChanges();}
             } else if(msg.meta == 'version++') {
-                blVersion++;
+                lsVersion++;
             } else if(msg.meta == 'chat') {
                 addMessage(msg.msg,true);
             }
@@ -534,8 +534,8 @@ async function activateLivescratch() {
             console.log('state '+state);
             if(state.endsWith('UPDATING')) {
                 console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
-                chrome.runtime.sendMessage(exId,{meta:'projectSavedJSON',blId,json:vm.toJSON(),version:blVersion});
-            // chrome.runtime.sendMessage(exId,{meta:'projectSaved',blId,scratchId,version:blVersion})
+                chrome.runtime.sendMessage(exId,{meta:'projectSavedJSON',lsId,json:vm.toJSON(),version:lsVersion});
+            // chrome.runtime.sendMessage(exId,{meta:'projectSaved',lsId,scratchId,version:lsVersion})
             }
             try{
                 if(state == 'SHOWING_WITH_ID') {
@@ -549,7 +549,7 @@ async function activateLivescratch() {
             console.log(`title changed from ${lastTitle} to ${title}`);
             lastTitle = title;
             if(title != settingTitle) {
-                liveMessage({meta:'setTitle',blId,title});
+                liveMessage({meta:'setTitle',lsId,title});
             }
         }
     });
@@ -1978,13 +1978,13 @@ async function activateLivescratch() {
     vm.setCloudProvider = function(that) {
         if(!store?.getState()?.preview.projectInfo.is_published && !!that) {
             console.log('PROVIDER SET', that);
-            that.projectId = blId;
+            that.projectId = lsId;
         }
         oldVmSetCloudProvider(that);
     };
     function connectToLivescratchCloud() {
-        if(!blId) {return;}
-        vm.runtime.ioDevices.cloud.provider.projectId = blId;
+        if(!lsId) {return;}
+        vm.runtime.ioDevices.cloud.provider.projectId = lsId;
         vm.runtime.ioDevices.cloud.provider.openConnection();
     }
 
@@ -2210,7 +2210,7 @@ let shareDropdown = `
             <unshare style="font-size:14px !important; align-self:center; margin-left:50px; justify-self:end; text-decoration:underline; color:#09004dd1;  cursor:pointer; padding:2px; background-color:rgba(255,255,255,0.15); border-radius:5px;" onclick="unshareLivescratch()">Unlink</unshare>
         </text>
         <sharedList  style="overflow: auto; max-height: 350px; display:flex; min-height: 20px; border-radius:10px;gap:5px;flex-direction: column;  ">
-            <cell id="blModalExample" style="display:none; gap:10px;flex-direction: row; align-items: center;">
+            <cell id="lsModalExample" style="display:none; gap:10px;flex-direction: row; align-items: center;">
                 <pic  style='width:40px; height:40px; border-radius: 100%; display:flex;background-position: center;background-size:cover; background-image:url("https://i.pinimg.com/originals/12/ff/9c/12ff9cd0f45317c362f0c87e2e55bd6c.jpg");';>
                 </pic>
                 <name onclick='window.open("https:\/\/scratch.mit.edu/users/" + this.innerText)', class="sharedName" style="cursor:pointer; max-width:122px;overflow:hidden; display:flex;align-self: center; font-size: large;font-weight:bold;">
@@ -2263,7 +2263,7 @@ let result = document.querySelector('#resultName')
 resultt = document.querySelector('#resultt')
 let plus = document.querySelector('#plus')
 let resultPic = document.querySelector('#resultPic')
-blModalExample = document.querySelector('#blModalExample')
+lsModalExample = document.querySelector('#lsModalExample')
 
         earch =document.querySelector('#searchy')
 
@@ -2304,7 +2304,7 @@ blModalExample = document.querySelector('#blModalExample')
 
 multiplyNode(document.querySelector('cell'), 2, true);
 
-// fetch(\`\${apiUrl}/share/\${blId}\`).then(res=>{res.json().then(json=>json.forEach(addCollaborator))})
+// fetch(\`\${apiUrl}/share/\${lsId}\`).then(res=>{res.json().then(json=>json.forEach(addCollaborator))})
 }
 `;
 let shareCSS = `
@@ -2336,7 +2336,7 @@ let shareCSS = `
 
 
 
-.blActiveName {
+.lsActiveName {
     // visibility: hidden;
     filter: opacity(0%);
 
@@ -2356,7 +2356,7 @@ let shareCSS = `
   }
   
 
-  .blActiveUser:hover ~ .blActiveName {
+  .lsActiveUser:hover ~ .lsActiveName {
     // visibility: visible;
     filter: opacity(100%);
   }
@@ -2592,7 +2592,7 @@ async function addCollaboratorGUI (user,omitX){
     if(user.username.toLowerCase() in shareDivs) {return;}
     if(!user) {return;}
 
-    let newCollab = blModalExample.cloneNode(-1);
+    let newCollab = lsModalExample.cloneNode(-1);
     // console.log(newCollab)
     newCollab.style.display = 'flex';
     Array.from(newCollab.children).find(elem=>elem.localName =='name').innerText = user.username;
@@ -2604,7 +2604,7 @@ async function addCollaboratorGUI (user,omitX){
     }
     Array.from(newCollab.children).find(elem=>elem.localName =='pic').style.backgroundImage = `url('${user.pic}')`;  
     shareDivs[user.username.toLowerCase()] = newCollab;
-    blModalExample.parentNode.append(newCollab);
+    lsModalExample.parentNode.append(newCollab);
 
     resultt.style.visibility = 'hidden';
     earch.value = '';
@@ -2626,7 +2626,7 @@ async function addCollaborator(username) {
     if(username.toLowerCase() in shareDivs) {return;}
     let user = await getUserInfo(username);
     if(!user) {return;}
-    chrome.runtime.sendMessage(exId,{meta:'shareWith','username':user.username,id:blId,pk:user.pk}, function (response) {
+    chrome.runtime.sendMessage(exId,{meta:'shareWith','username':user.username,id:lsId,pk:user.pk}, function (response) {
         if (response===200) {
             addCollaboratorGUI(user);
         } else {
@@ -2638,12 +2638,12 @@ async function addCollaborator(username) {
 
 function removeCollaborator(user) {
     removeCollaboratorGUI(user);
-    chrome.runtime.sendMessage(exId,{meta:'unshareWith',user,id:blId});
+    chrome.runtime.sendMessage(exId,{meta:'unshareWith',user,id:lsId});
 }
 
 function refreshShareModal() {
-    if(!blId) {return;}
-    return new Promise(promRes=>{chrome.runtime.sendMessage(exId,{meta:'getShared',id:blId},async (res)=>{
+    if(!lsId) {return;}
+    return new Promise(promRes=>{chrome.runtime.sendMessage(exId,{meta:'getShared',id:lsId},async (res)=>{
         removeAllCollaboratorsGUI();
         for (boi of res) {if(!boi.pk) {console.log('oi!',boi);boi.pk = (await getUserInfo(boi.username)).pk;};console.log(boi);}
         res.forEach(getWithPic);
@@ -2681,7 +2681,7 @@ function makeLivescratchButton(sharebutton) {
 }
 function makeRevertButton(communityButton) {
     let button = document.createElement('livescratch-init');
-    button.id='blRevert';
+    button.id='lsRevert';
     button.className = Array.from(communityButton.classList).filter(e=>['button_outlined-button','menu-bar_menu-bar-button','community-button_community-button'].find(n=>e.includes(n))).join(' ');
     
     // ;'button_outlined-button_1bS__ menu-bar_menu-bar-button_3IDN0 community-button_community-button_2Lo_g'
@@ -2773,14 +2773,14 @@ function showBlStartError(err) {
     // stop spinny
     document.querySelector('loader.livescratchloader').style.display = 'none';
 
-    document.querySelector('.blErr')?.remove();
-    document.querySelector('livescratchcontainer > livescratch-init').insertAdjacentHTML('afterend',`<div class="${rand} blErr" style="background:#ffcdf2; outline:3px solid red; padding:4px; position:absolute; top:50px; border-radius:12px; color:red"></div>`);
-    document.querySelector('.blErr').innerText=`There was an error:\n ${err}`;
-    setTimeout(()=>{document.querySelector(`.blErr.${rand}`)?.remove();},5000);
+    document.querySelector('.lsErr')?.remove();
+    document.querySelector('livescratchcontainer > livescratch-init').insertAdjacentHTML('afterend',`<div class="${rand} lsErr" style="background:#ffcdf2; outline:3px solid red; padding:4px; position:absolute; top:50px; border-radius:12px; color:red"></div>`);
+    document.querySelector('.lsErr').innerText=`There was an error:\n ${err}`;
+    setTimeout(()=>{document.querySelector(`.lsErr.${rand}`)?.remove();},5000);
 
 }
 
-let blActivateClick = async ()=>{
+let lsActivateClick = async ()=>{
 
     if(livescratchDeleted) {reloadAfterRestart=true;} //todo write code so that it can do this without restarting
     if(reloadAfterRestart){
@@ -2789,7 +2789,7 @@ let blActivateClick = async ()=>{
         document.querySelector('loader.livescratchloader').style.display = 'none';
         reloadOnlineUsers();
 
-        blShareClick();
+        lsShareClick();
     }
     
     // change onclick
@@ -2808,19 +2808,19 @@ let blActivateClick = async ()=>{
     chrome.runtime.sendMessage(exId,{json,meta:'create',scratchId,title:store.getState().preview.projectInfo.title},async (response)=>{
         if(response.noauth || response.err) {
             showBlStartError(response.noauth ? 'Livescratch hasnt verified you yet.' : response.err);
-            livescratchButton.onclick = blActivateClick;
+            livescratchButton.onclick = lsActivateClick;
             return;
         }
         
        
-        blId = response.id; 
+        lsId = response.id;
 
    
 
-        // ACTIVATE BLOKLIVE!!!
+        // ACTIVATE LSOKLIVE!!!
         projectReplaceInitiated = true;
         pauseEventHandling = false;
-        liveMessage({meta:'myId',id:blId});
+        liveMessage({meta:'myId',id:lsId});
         activateLivescratch();
         // JOIN LIVESCRATCH SESSION!!!!
         liveMessage({meta:'joinSession'});
@@ -2835,18 +2835,18 @@ let blActivateClick = async ()=>{
         document.querySelector('loader.livescratchloader').style.display = 'none';
 
         // Set button onclick
-        livescratchButton.onclick = blShareClick;
+        livescratchButton.onclick = lsShareClick;
         reloadOnlineUsers();
 
-        blShareClick();
+        lsShareClick();
 
     });
 };
-let blShareClick = ()=>{console.log('clicked'); blDropdown.style.display = (blDropdown.style.display == 'none' ? 'flex' : 'none'); refreshShareModal(); };
+let lsShareClick = ()=>{console.log('clicked'); lsDropdown.style.display = (lsDropdown.style.display == 'none' ? 'flex' : 'none'); refreshShareModal(); };
 
 console.log('listening for share button');
 livescratchButton = null;
-blDropdown = null;
+lsDropdown = null;
 
 function doIOwnThis() {
     return store.getState().session.session.user.id == store.getState().preview.projectInfo.author.id;
@@ -2871,15 +2871,15 @@ function addButtonInjectors() {
             dropdown.style.borderRadius = '17px';
             dropdown.style.boxShadow = '3px 7px 19px 3px rgba(0,0,0,0.48)';
             dropdown.style.display = 'none';
-            blDropdown = dropdown;
+            lsDropdown = dropdown;
 
             button.onclick = ()=>{
-                if(blId) {
+                if(lsId) {
                 // if already is shared
-                    return blShareClick();
+                    return lsShareClick();
                 } else {
                 // if is regular scratch project
-                    return blActivateClick();
+                    return lsActivateClick();
                 }
             };
             document.addEventListener('click', (e)=>{if(e.target.nodeName != 'X' &&!dropdown.contains(e.target) && !button.contains(e.target)){dropdown.style.display = 'none';}});
@@ -2904,7 +2904,7 @@ function addButtonInjectors() {
 
         // add panel
         let panel = document.createElement('div');
-        panel.id = 'blUsersPanel';
+        panel.id = 'lsUsersPanel';
         panel.style = 'display: flex; jusify-content:center; align-items: center; gap: 3px; max-width: 300px; overflow: auto;';
         topBar.insertBefore(panel,accountInfo);
         // add chat
@@ -2934,7 +2934,7 @@ function addButtonInjectors() {
 function addRevertButton() {
     let seeProjectPage = Array.from(document.querySelectorAll('span[class*="community-button_community-button"]')).find(e=>e.innerText?.includes('Page'));
 
-    if(!blId) {return;}
+    if(!lsId) {return;}
 
     // let container = document.createElement('revertContainer')
     // container.style.display = 'flex'
@@ -2949,16 +2949,16 @@ function addRevertButton() {
     // dropdown.style.borderRadius = '17px'
     // dropdown.style.boxShadow = '3px 7px 19px 3px rgba(0,0,0,0.48)'
     // dropdown.style.display = 'none'
-    // blDropdown = dropdown
+    // lsDropdown = dropdown
 
     button.onclick = ()=>{
         revertProject();
-        // if(blId) {
+        // if(lsId) {
         //     // if already is shared
-        //     return blShareClick()
+        //     return lsShareClick()
         // } else {
         //     // if is regular scratch project
-        //     return blActivateClick()
+        //     return lsActivateClick()
         // }
     };
 
@@ -2986,8 +2986,8 @@ let COLORS_BRIGHT = ['#00b9d1','#ff00e6', '#5fd2a5'];
 let yo_1 = Math.round(Math.random());
 
 function clearActive() {
-    if(!document.getElementById('blUsersPanel')) {return;}
-    document.getElementById('blUsersPanel').innerHTML = '';
+    if(!document.getElementById('lsUsersPanel')) {return;}
+    document.getElementById('lsUsersPanel').innerHTML = '';
 
     let activeText = document.createElement('div');
     activeText.innerHTML = 'online:';
@@ -2998,7 +2998,7 @@ function clearActive() {
     activeText.style.alignSelf= 'center';
 
     activeText.style.marginRight = '10px';
-    document.getElementById('blUsersPanel').appendChild(activeText);
+    document.getElementById('lsUsersPanel').appendChild(activeText);
 }
 
 let bl_dudes = [];
@@ -3014,11 +3014,11 @@ async function displayActive(users) {
         }
     });
 
-    if(!document.getElementById('blUsersPanel')) {return;}
+    if(!document.getElementById('lsUsersPanel')) {return;}
     setTopbarButtonVisibility();
 
     let yo = yo_1;
-    let panel = document.getElementById('blUsersPanel');
+    let panel = document.getElementById('lsUsersPanel');
     if(!panel) {return;}
     for(let i = 0; i<users.length; i++) {
 
@@ -3068,23 +3068,23 @@ async function displayActive(users) {
         yo = yo%COLORS.length;
         user.style.outline = '3px solid ' + COLORS[yo];
         // user.style.outline = '3px solid ' + COLORS[Math.floor(Math.random()*COLORS.length)]
-        user.className = 'blActiveUser';
+        user.className = 'lsActiveUser';
 
         let tooltip = document.createElement('div');
         tooltip.innerText = users[i].username;
         tooltip.style.backgroundColor = COLORS_BRIGHT[yo];
-        tooltip.className = 'blActiveName';
+        tooltip.className = 'lsActiveName';
         container.appendChild(user);
         container.appendChild(tooltip);
         panel.appendChild(container);
     }
 }
 
-blCursors=null;
+lsCursors=null;
 function reloadOnlineUsers() {
-    chrome.runtime.sendMessage(exId,{meta:'getActive',id:blId},(res)=>{
-        if(JSON.stringify(blCursors)==JSON.stringify(res)) {return;}
-        blCursors = res;
+    chrome.runtime.sendMessage(exId,{meta:'getActive',id:lsId},(res)=>{
+        if(JSON.stringify(lsCursors)==JSON.stringify(res)) {return;}
+        lsCursors = res;
         clearActive();
         try{displayActive(res);}catch(e){console.error(e);}
         // moveMyBubble()
@@ -3092,7 +3092,7 @@ function reloadOnlineUsers() {
 }
 function showCachedOnlineUsers() {
     clearActive();
-    try{displayActive(blCursors);}catch(e){console.error(e);}
+    try{displayActive(lsCursors);}catch(e){console.error(e);}
 }
 
 setInterval(reloadOnlineUsers,2500);
@@ -3501,12 +3501,12 @@ function addChat() {
         injectChatCSS();
         injectEmojiOne();
 
-        let blChat = document.createElement('ls-chat');
-        blChat.id = 'ls-chat';
-        blChat.innerHTML = ChatHTML;
-        // blChat.style.visibility = 'hidden'
+        let lsChat = document.createElement('ls-chat');
+        lsChat.id = 'ls-chat';
+        lsChat.innerHTML = ChatHTML;
+        // lsChat.style.visibility = 'hidden'
         let parentContainer = document.body.querySelector('#app').querySelector('.box_box_bP3Aq').querySelector('.gui_flex-wrapper_Zk207');
-        parentContainer.insertBefore(blChat, parentContainer.childNodes[1]);
+        parentContainer.insertBefore(lsChat, parentContainer.childNodes[1]);
 
         let chatbox = document.querySelector('ls-chat');
 
@@ -3522,8 +3522,8 @@ function addChat() {
         //// get own username, then populate chat history
         chrome.runtime.sendMessage(exId,{meta:'getUsernamePlus'},(userData)=>{
             uname = userData.uname;
-            let blToken = userData.currentBlToken;
-            fetch(apiUrl + '/chat/' + blId,{headers:{uname,authorization:blToken}}).then(async res=>{
+            let lsToken = userData.currentLsToken;
+            fetch(apiUrl + '/chat/' + lsId,{headers:{uname,authorization:lsToken}}).then(async res=>{
                 let chatHistory = await res.json();
                 chatHistory.forEach(msg=>addMessage(msg));
             });
@@ -3547,7 +3547,7 @@ function addChat() {
 function addChatButton() {
     try{
         let chatElem = document.createElement('div');
-        chatElem.id = 'blChatButton';
+        chatElem.id = 'lsChatButton';
         chatElem.classList.add('ls-chat-toggle-button');
         chatElem.innerHTML = '<span class="ls-chat-toggle" onclick="toggleChat()"><span>💬 LiveScratch Chat</span><span class="chatdot"></span></span>';
 
@@ -3556,7 +3556,7 @@ function addChatButton() {
 
         setChatUnread(chatUnreadCount);
 
-        if(!blId) {chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none';}
+        if(!lsId) {chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none';}
         else {chatElem.style.visibility = 'visible'; chatElem.style.display = 'flex';}
 
     }catch(e) {console.error(e);}
@@ -3877,9 +3877,9 @@ let spriteDisplayCSS = `
 
 function moveMyBubble() {
     try{
-        blCursors.find(b=>b.username==uname).cursor.targetName=BL_UTILS.targetToName(vm.editingTarget);
+        lsCursors.find(b=>b.username==uname).cursor.targetName=BL_UTILS.targetToName(vm.editingTarget);
         clearActive();
-        try{displayActive(blCursors);}catch(e){console.error(e);}
+        try{displayActive(lsCursors);}catch(e){console.error(e);}
     }catch(e){console.error(e);}
 }
 

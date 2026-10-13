@@ -63,69 +63,63 @@ document.querySelectorAll('button.credit').forEach(function(credit){
     };
 });   
 
-chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, function (info) {
+chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, function (info) {
+    if (!info) return;
     let username = info.uname;
-    let token = info.currentBlToken;
+    let token = info.currentLsToken;
     let apiUrl = info.apiUrl;
+    const authAccount = document.querySelector('#auth-account');
+    const authUsername = document.querySelector('#auth-username');
+    const logoutButton = document.querySelector('#logout');
+    if (token) {
+        authAccount.hidden = false;
+        authUsername.textContent = `@${username}`;
+    }
 
-    document.querySelector('input#custom-server')?.addEventListener('change', function () {
-        const input = document.querySelector('input#custom-server');
-        const serverUrlField = document.getElementById('server-url');
-        
-        const value = input.checked;
-        console.log(value);
-        chrome.storage.local.set({ 'custom-server': value });
-        serverUrlField.disabled = !value;
-    
-        if (serverUrlField.value!=='https://livescratchapi.waakul.com') {
-            chrome.runtime.sendMessage({meta: 'clearCrntToken'}, function(){
-                chrome.storage.local.remove(
-                    [`blToken.${username}`, 'dontShowVerifyError', 'uname', 'upk', 'verifyServerConnErr'], 
-                    function () {
-                        if (chrome.runtime.lastError) {
-                            console.error('Error removing keys:', chrome.runtime.lastError);
-                        } else {
-                            console.log('Keys successfully removed.');
-                            chrome.storage.local.set({ 'apiUpdateReload': true }, function() {
-                                chrome.runtime.reload();
-                            });
-                        }
-                    },
-                );
-            });        
+    logoutButton?.addEventListener('click', async () => {
+        const status = document.querySelector('#logout-status');
+        logoutButton.disabled = true;
+        logoutButton.textContent = 'Logging out…';
+        status.textContent = '';
+        try {
+            const result = await chrome.runtime.sendMessage({ meta: 'logoutScratchAuth' });
+            if (!result?.success) throw new Error('Could not log out.');
+            location.reload();
+        } catch (error) {
+            status.textContent = error.message || 'Could not log out.';
+            logoutButton.disabled = false;
+            logoutButton.textContent = 'Log out';
         }
     });
-    
-    document.querySelector('input#server-url')?.addEventListener('change', function () {
-        value = document.querySelector('input#server-url').value;
-        if (!value) {
-            document.querySelector('input#server-url').value = 'https://livescratchapi.waakul.com';
-            chrome.storage.local.set({'server-url': 'https://livescratchapi.waakul.com'});
-        } else {
-            valid = validateUrl(document.querySelector('input#server-url'));
-            console.log(valid);
-            if (valid) {
-                chrome.storage.local.set({'server-url': value});
-            } else {
-                document.querySelector('input#server-url').value = 'https://livescratchapi.waakul.com';
-                chrome.storage.local.set({'server-url': 'https://livescratchapi.waakul.com'});
-            }
+
+    const customServer = document.querySelector('input#custom-server');
+    const serverUrlField = document.getElementById('server-url');
+    async function saveServerSetting(enabled, url) {
+        await chrome.storage.local.set({ 'custom-server': enabled, 'server-url': url });
+        await chrome.storage.local.remove([`lsToken.${username?.toLowerCase()}`, `blToken.${username?.toLowerCase()}`]);
+        await chrome.storage.local.set({ apiUpdateReload: true });
+        chrome.runtime.reload();
+    }
+    function requestServerPermission(enabled, url) {
+        if (!enabled) return void saveServerSetting(false, url);
+        if (!validateUrl({ value: url })) {
+            serverUrlField.setCustomValidity('Enter a valid server URL.');
+            serverUrlField.reportValidity();
+            customServer.checked = false;
+            return;
         }
-        chrome.sendMessage({meta: 'clearCrntToken'}, function(){
-            chrome.storage.local.remove(
-                [`blToken.${username}`, 'dontShowVerifyError', 'uname', 'upk', 'verifyServerConnErr'], 
-                function () {
-                    if (chrome.runtime.lastError) {
-                        console.error('Error removing keys:', chrome.runtime.lastError);
-                    } else {
-                        console.log('Keys successfully removed.');
-                        chrome.storage.local.set({ 'apiUpdateReload': true }, function() {
-                            chrome.runtime.reload();
-                        });
-                    }
-                },
-            );
+        serverUrlField.setCustomValidity('');
+        chrome.permissions.request({ origins: [`${new URL(url).origin}/*`] }, granted => {
+            if (granted) saveServerSetting(true, url);
+            else customServer.checked = false;
         });
+    }
+    customServer?.addEventListener('change', () => {
+        serverUrlField.disabled = !customServer.checked;
+        requestServerPermission(customServer.checked, serverUrlField.value.trim());
+    });
+    serverUrlField?.addEventListener('change', () => {
+        if (customServer.checked) requestServerPermission(true, serverUrlField.value.trim());
     });
 
     function setSignedin(info) {
@@ -133,7 +127,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, function (info) {
         if (info.signedin) {
             document.querySelector('#loggedout').style.display = 'none';
             document.querySelector('#contents').style.display = 'flex';
-            token = info.currentBlToken;
+            token = info.currentLsToken;
             username = info.uname;
         } else {
             document.querySelector('#loggedout').style.display = 'flex';
@@ -141,8 +135,6 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, function (info) {
         }
     }
     setSignedin(info);
-
-    setTimeout(() => { chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, setSignedin); }, 1000);
 
     let alreadyAdded = {};
 
@@ -216,7 +208,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, function (info) {
 
     document.querySelector('#submit').onclick = () => { addFriend(document.querySelector('#add').value); };
 
-    if (!info.currentBlToken && !info.verifyBypass) {
+    if (!info.currentLsToken) {
         showNoAuthMessage();
     } else {
         fetch(`${apiUrl}/friends/${username}`, { headers: { authorization: token } })
@@ -233,7 +225,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, function (info) {
 
     {
         (async () => {
-            document.querySelector('#privme').checked = await (await fetch(`${apiUrl}/privateMe/${username}`, { headers: { authorization: token } })).json();
+            if (token) document.querySelector('#privme').checked = await (await fetch(`${apiUrl}/privateMe/${username}`, { headers: { authorization: token } })).json();
         })();
     }
 
@@ -247,6 +239,21 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus' }, function (info) {
 function showNoAuthMessage() {
     document.querySelector('#not-verified').style.display = 'inherit';
 }
+
+document.querySelector('#scratch-auth-login')?.addEventListener('click', async () => {
+    const button = document.querySelector('#scratch-auth-login');
+    const status = document.querySelector('#scratch-auth-status');
+    button.disabled = true;
+    status.textContent = 'Opening Scratch Auth…';
+    try {
+        const result = await chrome.runtime.sendMessage({ meta: 'startScratchAuth' });
+        if (result?.err) throw new Error(result.err);
+        status.textContent = 'Complete the sign in in the new tab, then return here.';
+    } catch (error) {
+        status.textContent = error.message || 'Could not start sign in.';
+        button.disabled = false;
+    }
+});
 
 document.getElementById('link-uptime').onclick = () => {
     chrome.tabs.create({ url: 'https://status.uptime-monitor.io/67497373f98a6334aaea672d' });
