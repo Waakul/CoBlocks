@@ -13,9 +13,13 @@ import * as fileStorageUtils from './utils/fileStorage.js';
 import { installCleaningJob } from './utils/removeOldProjects.js';
 import { countRecentShared, recordPopup, saveRecent } from './utils/recentUsers.js';
 import { setPaths, authenticate, fullAuthenticate } from './utils/scratch-auth.js';
+import { reconcileProjectReferences, userOwnsProject } from './utils/projectAccess.js';
 import initSockets from './WebSockets.js';
 
 const app = express();
+const api = express.Router();
+const API_PREFIX = '/apiv2';
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback');
 app.use(cors({ origin: '*' }));
 
 // Optimized for larger JSON scratch payloads without choking memory
@@ -24,6 +28,7 @@ app.use(express.json({ limit: '20MB' }));
 const httpServer = http.createServer(app);
 const ioHttp = new Server(httpServer, {
     cors: { origin: '*' },
+    path: `${API_PREFIX}/socket.io`,
     maxHttpBufferSize: 2e7, // 20MB limit for socket payloads
 });
 
@@ -31,6 +36,32 @@ export let isFinalSaving = false;
 const restartMessage = 'The Livescratch server is restarting. You will lose connection for a few seconds.';
 
 const sleep = (millis) => new Promise(res => setTimeout(res, millis));
+const apiRequests = new Map();
+const API_RATE_WINDOW_MS = 60_000;
+const configuredApiRateLimit = Number(process.env.API_RATE_LIMIT || 300);
+const API_RATE_LIMIT = Number.isFinite(configuredApiRateLimit) && configuredApiRateLimit > 0 ? configuredApiRateLimit : 300;
+const validProjectId = value => /^\d{1,20}$/.test(String(value));
+
+app.use((req, res, next) => {
+    const now = Date.now();
+    const key = req.ip;
+    let bucket = apiRequests.get(key);
+    if (!bucket || now - bucket.startedAt >= API_RATE_WINDOW_MS) {
+        bucket = { count: 0, startedAt: now };
+        apiRequests.set(key, bucket);
+    }
+    bucket.count++;
+    if (apiRequests.size > 10_000) {
+        for (const [address, value] of apiRequests) {
+            if (now - value.startedAt >= API_RATE_WINDOW_MS) apiRequests.delete(address);
+        }
+    }
+    if (bucket.count > API_RATE_LIMIT) {
+        res.set('Retry-After', String(Math.ceil((bucket.startedAt + API_RATE_WINDOW_MS - now) / 1000)));
+        return res.status(429).send({ err: 'Too many requests. Try again shortly.' });
+    }
+    next();
+});
 
 // --- 1. OPTIMIZED LOAD ROUTINE ---
 console.log('Booting server... Projects will load when requested.');
@@ -41,7 +72,7 @@ const lastId = fs.readdirSync(fileStorageUtils.livescratchPath).reduce((max, nam
 }, Number.isSafeInteger(savedLastId) ? savedLastId : 0);
 const sessionManager = SessionManager.fromJSON({ lastId });
 const userManager = new UserManager();
-setPaths(app, userManager, sessionManager);
+setPaths(api, userManager, sessionManager);
 
 fileStorageUtils.saveLoop(sessionManager);
 
@@ -84,9 +115,9 @@ new initSockets(ioHttp, sessionManager, userManager);
 
 // --- 3. EXPRESS ROUTES ---
 
-app.post('/newProject/:scratchId/:owner', (req, res) => {
+api.post('/newProject/:scratchId/:owner', (req, res) => {
     if (!authenticate(req.params.owner, req.headers.authorization)) return res.send({ noauth: true });
-    if (!req.params.scratchId || (sanitize(req.params.scratchId.toString()) === '')) {
+    if (!validProjectId(req.params.scratchId) || sanitize(req.params.scratchId.toString()) === '') {
         return res.send({ err: 'invalid scratch id' });
     }
     
@@ -94,12 +125,17 @@ app.post('/newProject/:scratchId/:owner', (req, res) => {
     if (!project) {
         console.log(`Creating new project: ${req.params.scratchId} by ${req.params.owner}`);
         project = sessionManager.newProject(req.params.owner, req.params.scratchId, req.body, req.query.title);
+        if (!project) return res.status(500).send({ err: 'Could not create the LiveScratch project.' });
         userManager.newProject(req.params.owner, project.id);
+        sessionManager.persistProject(project.id);
+        userManager.persistUser(req.params.owner);
+    } else if (!sessionManager.canUserAccessProject(req.params.owner, project.id)) {
+        return res.status(409).send({ err: 'This Scratch project is already linked to another LiveScratch project.' });
     }
     res.send({ id: project.id });
 });
 
-app.get('/lsId/:scratchId/:uname', (req, res) => {
+api.get('/lsId/:scratchId/:uname', (req, res) => {
     const entry = sessionManager.getScratchProjectEntry(req.params.scratchId);
     const lsId = entry?.lsId;
     if (!lsId) return res.send(null);
@@ -113,15 +149,15 @@ app.get('/lsId/:scratchId/:uname', (req, res) => {
     res.send(hasAccess ? lsId : null);
 });
 
-app.get('/scratchIdInfo/:scratchId', (req, res) => {
-    if (sessionManager.doesScratchProjectEntryExist(req.params.scratchId)) {
-        res.send(sessionManager.getScratchProjectEntry(req.params.scratchId));
-    } else {
-        res.send({ err: `could not find livescratch project associated with scratch project id: ${req.params.scratchId}` });
-    }
+api.get('/scratchIdInfo/:scratchId', (req, res) => {
+    if (!validProjectId(req.params.scratchId)) return res.status(400).send({ err: 'Invalid Scratch project ID.' });
+    const entry = sessionManager.getScratchProjectEntry(req.params.scratchId);
+    if (!entry) return res.status(404).send({ err: 'No LiveScratch project is linked to this Scratch project.' });
+    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, entry.lsId)) return res.status(403).send({ noauth: true });
+    res.send(entry);
 });
 
-app.get('/projectTitle/:id', (req, res) => {
+api.get('/projectTitle/:id', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.id);
@@ -132,7 +168,7 @@ app.get('/projectTitle/:id', (req, res) => {
     }
 });
 
-app.post('/projectSavedJSON/:lsId/:version', (req, res) => {
+api.post('/projectSavedJSON/:lsId/:version', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.lsId);
@@ -144,7 +180,7 @@ app.post('/projectSavedJSON/:lsId/:version', (req, res) => {
     res.send({ success: 'Successfully saved the project!' });
 });
 
-app.get('/projectJSON/:lsId', (req, res) => {
+api.get('/projectJSON/:lsId', (req, res) => {
     if (!fullAuthenticate(req.query.username, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.lsId);
@@ -153,9 +189,9 @@ app.get('/projectJSON/:lsId', (req, res) => {
     res.send({ json: project.projectJson, version: project.jsonVersion });
 });
 
-app.use('/html', express.static('static'));
+api.use('/html', express.static('static'));
 
-app.get('/changesSince/:id/:version', (req, res) => {
+api.get('/changesSince/:id/:version', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.id);
@@ -192,7 +228,7 @@ function ListToObj(list) {
     return output;
 }
 
-app.get('/chat/:id', (req, res) => {
+api.get('/chat/:id', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
     const project = sessionManager.getProject(req.params.id);
     res.send(project ? project.getChat() : []);
@@ -204,19 +240,19 @@ const adminAuth = basicAuth({
     challenge: true,
 });
 
-app.put('/ban/:username', adminAuth, (req, res) => {
+api.put('/ban/:username', adminAuth, (req, res) => {
     fileStorageUtils.ban(req.params.username)
         .then(() => res.send({ success: 'Successfully banned!' }))
         .catch(err => res.send({ err }));
 });
 
-app.put('/unban/:username', adminAuth, (req, res) => {
+api.put('/unban/:username', adminAuth, (req, res) => {
     fileStorageUtils.unban(req.params.username)
         .then(() => res.send({ success: 'Successfully unbanned!' }))
         .catch(err => res.send({ err }));
 });
 
-app.get('/banned', adminAuth, (req, res) => {
+api.get('/banned', adminAuth, (req, res) => {
     fileStorageUtils.getBanned()
         .then(bannedList => res.send(bannedList))
         .catch(err => res.send({ err }));
@@ -227,7 +263,7 @@ let cachedStats = null;
 let cachedStatsTime = 0;
 const cachedStatsLifetimeMillis = 5000; // Increased to 5s for better performance
 
-app.get('/stats', adminAuth, (req, res) => {
+api.get('/stats', adminAuth, (req, res) => {
     if (Date.now() - cachedStatsTime > cachedStatsLifetimeMillis) {
         cachedStats = sessionManager.getStats();
         cachedStats.cachedAt = new Date();
@@ -236,34 +272,38 @@ app.get('/stats', adminAuth, (req, res) => {
     res.send(cachedStats);
 });
 
-app.get('/dau/:days', (req, res) => {
+api.get('/dau/:days', (req, res) => {
     res.send(String(countRecentShared(parseFloat(req.params.days))));
 });
 
-app.put('/linkScratch/:scratchId/:lsId/:owner', (req, res) => {
+api.put('/linkScratch/:scratchId/:lsId/:owner', (req, res) => {
+    if (!validProjectId(req.params.scratchId) || !validProjectId(req.params.lsId)) return res.status(400).send({ err: 'Invalid project ID.' });
     if (!fullAuthenticate(req.params.owner, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
-    sessionManager.linkProject(req.params.lsId, req.params.scratchId, req.params.owner, 0);
+    const result = sessionManager.linkProject(req.params.lsId, req.params.scratchId, req.params.owner, 0);
+    if (!result?.ok) return res.status(result?.conflict ? 409 : 400).send({ err: result?.error || 'Could not link project.' });
+    sessionManager.persistProject(req.params.lsId);
     res.send({ success: 'Successfully linked!' });
 });
 
-app.get('/userExists/:username', (req, res) => {
+api.get('/userExists/:username', (req, res) => {
     res.send(userManager.userExists(req.params.username) && !userManager.getUser(req.params.username).privateMe);
 });
 
-app.put('/privateMe/:username/:private', (req, res) => {
+api.put('/privateMe/:username/:private', (req, res) => {
     const unameClean = sanitize(req.params.username);
     if (!authenticate(unameClean, req.headers.authorization)) return res.send({ noauth: true });
     userManager.getUser(unameClean).privateMe = req.params.private === 'true';
+    userManager.persistUser(unameClean);
     res.sendStatus(200);
 });
 
-app.get('/privateMe/:username', (req, res) => {
+api.get('/privateMe/:username', (req, res) => {
     const unameClean = sanitize(req.params.username);
     if (!authenticate(unameClean, req.headers.authorization)) return res.send({ noauth: true });
     res.send(userManager.getUser(unameClean).privateMe);
 });
 
-app.get('/userRedirect/:scratchId/:username', (req, res) => {
+api.get('/userRedirect/:scratchId/:username', (req, res) => {
     const project = sessionManager.getScratchToLSProject(req.params.scratchId);
     if (!fullAuthenticate(req.params.username, req.headers.authorization, project?.id)) {
         return res.send({ noauth: true, goto: 'none' });
@@ -278,7 +318,7 @@ app.get('/userRedirect/:scratchId/:username', (req, res) => {
     }
 });
 
-app.get('/active/:lsId', (req, res) => {
+api.get('/active/:lsId', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
 
     const activeProj = sessionManager.getProject(req.params.lsId);
@@ -294,39 +334,54 @@ app.get('/active/:lsId', (req, res) => {
     }
 });
 
-app.get('/', (req, res) => {
+api.get('/', (req, res) => {
     res.send('LiveScratch API');
 });
 
-app.post('/friends/:user/:friend', (req, res) => {
+api.post('/friends/:user/:friend', (req, res) => {
     if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
     if (!userManager.userExists(req.params.friend)) return res.sendStatus(404);
 
     userManager.befriend(req.params.user, req.params.friend);
+    userManager.persistUser(req.params.user);
     res.send({ success: 'Successfully friended!' });
 });
 
-app.delete('/friends/:user/:friend', (req, res) => {
+api.delete('/friends/:user/:friend', (req, res) => {
     if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
     userManager.unbefriend(req.params.user, req.params.friend);
+    userManager.persistUser(req.params.user);
     res.send({ success: 'Succesfully unfriended!' });
 });
 
-app.get('/friends/:user', (req, res) => {
-    recordPopup(req.params.user);
+api.get('/friends/:user', (req, res) => {
     if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
+    recordPopup(req.params.user);
     res.send(userManager.getUser(req.params.user)?.friends);
 });
 
-app.get('/userProjects/:user', (req, res) => {
+api.get('/userProjects/:user', (req, res) => {
     if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
-    res.send(userManager.getShared(req.params.user));
+    const user = userManager.findUser(req.params.user);
+    const { authorizedIds, removedIds } = reconcileProjectReferences(req.params.user, user, id => sessionManager.getProject(id));
+    if (removedIds.length) userManager.persistUser(req.params.user);
+    const owned = new Set((user?.myProjects || []).map(String));
+    res.send(authorizedIds.filter(id => !owned.has(String(id))));
 });
 
-app.get('/userProjectsScratch/:user', (req, res) => {
+api.get('/userProjectsScratch/:user', (req, res) => {
     if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
 
-    const livescratchIds = userManager.getAllProjects(req.params.user);
+    const user = userManager.findUser(req.params.user);
+    const { authorizedIds: livescratchIds, removedIds } = reconcileProjectReferences(
+        req.params.user,
+        user,
+        id => sessionManager.getProject(id),
+    );
+    if (removedIds.length) {
+        console.warn(`Removed ${removedIds.length} stale project reference(s) from ${req.params.user}.`);
+        userManager.persistUser(req.params.user);
+    }
     const projectsList = livescratchIds.map(id => {
         const project = sessionManager.getProject(id);
         if (!project) return null;
@@ -345,62 +400,92 @@ app.get('/userProjectsScratch/:user', (req, res) => {
     res.send(projectsList);
 });
 
-app.put('/leaveScratchId/:scratchId/:username', (req, res) => {
+api.put('/leaveScratchId/:scratchId/:username', (req, res) => {
     const project = sessionManager.getScratchToLSProject(req.params.scratchId);
     if (!project || !fullAuthenticate(req.params.username, req.headers.authorization, project.id)) return res.send({ noauth: true });
     
+    const previousOwner = project.owner;
     userManager.unShare(req.params.username, project.id);
     sessionManager.unshareProject(project.id, req.params.username);
+    if (previousOwner?.toLowerCase() === req.params.username.toLowerCase() && project.owner) {
+        userManager.unShare(project.owner, project.id);
+        userManager.newProject(project.owner, project.id);
+        userManager.persistUser(project.owner);
+    }
+    if (project.owner) sessionManager.persistProject(project.id);
+    userManager.persistUser(req.params.username);
     res.send({ success: 'User successfully removed!' });
 });
 
-app.put('/leaveLSId/:lsId/:username', (req, res) => {
+api.put('/leaveLSId/:lsId/:username', (req, res) => {
     if (!authenticate(req.params.username, req.headers.authorization)) return res.send({ noauth: true });
+    const project = sessionManager.getProject(req.params.lsId);
+    if (!project || !sessionManager.canUserAccessProject(req.params.username, req.params.lsId)) return res.status(403).send({ noauth: true });
     
+    const previousOwner = project.owner;
     userManager.unShare(req.params.username, req.params.lsId);
     sessionManager.unshareProject(req.params.lsId, req.params.username);
+    if (previousOwner?.toLowerCase() === req.params.username.toLowerCase() && project.owner) {
+        userManager.unShare(project.owner, project.id);
+        userManager.newProject(project.owner, project.id);
+        userManager.persistUser(project.owner);
+    }
+    if (project.owner) sessionManager.persistProject(project.id);
+    userManager.persistUser(req.params.username);
     res.send({ success: 'User successfully removed!' });
 });
 
-app.get('/share/:id', (req, res) => {
+api.get('/share/:id', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.id);
     let list = project?.sharedWith;
     if (!list) return res.send({ err: 'No shared list found for the specified project.' });
     
-    list = list.map(name => ({ username: name, pk: userManager.getUser(name).pk }));
-    res.send([{ username: project.owner, pk: userManager.getUser(project.owner).pk }].concat(list));
+    list = list.map(name => ({ username: name, pk: userManager.findUser(name)?.pk }));
+    res.send([{ username: project.owner, pk: userManager.findUser(project.owner)?.pk }].concat(list));
 });
 
-app.put('/share/:id/:to/:from', (req, res) => {
+api.put('/share/:id/:to/:from', (req, res) => {
     if (!fullAuthenticate(req.params.from, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.id);
-    if (project?.owner === req.params.to) {
+    if (!userOwnsProject(project, req.params.from)) return res.status(403).send({ err: 'Only the project owner can add collaborators.' });
+    if (userOwnsProject(project, req.params.to)) {
         return res.send({ err: 'Cannot share the project with the owner.' });
     }
 
     if (!userManager.userExists(req.params.to)) return res.sendStatus(404);
 
-    sessionManager.shareProject(req.params.id, req.params.to, req.query.pk);
-    userManager.getUser(req.params.to).pk = req.query.pk;
+    const profileId = typeof req.query.pk === 'string' ? req.query.pk.slice(0, 64) : undefined;
+    sessionManager.shareProject(req.params.id, req.params.to, profileId);
+    userManager.getUser(req.params.to).pk = profileId;
     userManager.share(req.params.to, req.params.id, req.params.from);
+    sessionManager.persistProject(req.params.id);
+    userManager.persistUser(req.params.to);
     res.send({ success: 'Project successfully shared.' });
 });
 
-app.put('/unshare/:id/:to/', (req, res) => {
+api.put('/unshare/:id/:to/', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
 
     const project = sessionManager.getProject(req.params.id);
-    if (project?.owner === req.params.to) {
+    if (!userOwnsProject(project, req.headers.uname)) return res.status(403).send({ err: 'Only the project owner can remove collaborators.' });
+    if (userOwnsProject(project, req.params.to)) {
         return res.send({ err: 'Cannot unshare the project with the owner.' });
+    }
+    if (!project.sharedWith.some(name => String(name).toLowerCase() === req.params.to.toLowerCase())) {
+        return res.status(404).send({ err: 'That user is not a collaborator on this project.' });
     }
     
     sessionManager.unshareProject(req.params.id, req.params.to);
     userManager.unShare(req.params.to, req.params.id);
+    sessionManager.persistProject(req.params.id);
+    userManager.persistUser(req.params.to);
     res.send({ success: 'Project successfully unshared.' });
 });
+
+app.use(API_PREFIX, api);
 
 const port = process.env.PORT;
 httpServer.listen(port, '0.0.0.0');

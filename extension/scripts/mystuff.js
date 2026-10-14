@@ -211,6 +211,22 @@ width:fit-content;
   .media-info-item.date.shortDateFormat{
       width:200%;
   }
+
+  .ls-project-row > .media-item-content {
+      margin-block: 8px;
+      padding: 12px;
+      border: 1px solid rgba(66,167,126,.22);
+      border-left: 5px solid #4caf86;
+      border-radius: 14px;
+      background: linear-gradient(100deg,rgba(235,250,244,.78),rgba(235,244,255,.55));
+      box-shadow: 0 7px 24px rgba(31,74,56,.08);
+  }
+  .ls-project-row .media-thumb img { border-radius: 10px; }
+  .ls-project-row .media-info-item.title a { color: #2d8966 !important; font-weight: 700; }
+  .ls-project-row .media-info-item.date { color: #66756e; }
+  .ls-project-row .media-control-edit { min-height: 34px; padding-inline: 12px; border: 0; border-radius: 9px; color: #fff; background: linear-gradient(115deg,#3fa879,#4b9fea); }
+  .ls-project-row .media-trash { display: inline-flex; padding: 7px 10px; border-radius: 8px; color: #a54242 !important; background: #fff0f0; font-weight: 700; }
+  .ls-project-row .onlineBubble { width: 24px; height: 24px; margin-left: -4px; margin-right: 0; border-radius: 50%; outline: 2px solid #fff; }
 `;
 
 
@@ -259,6 +275,7 @@ function getId(listItem) {
 
 let oldAttrs = {};
 async function convertToLivescratch(listItem, projectObj) {
+    listItem.classList.add('ls-project-row');
     let atts = {};
     atts.color = listItem.children[0].children[1].children[0].children[0].style.color;
     listItem.children[0].children[1].children[0].children[0].style.color = 'rgb(88, 193, 152)';
@@ -290,10 +307,12 @@ function cleanseOfLivescratchness(scratchId, listItem) {
     // listItem.children[0].children[2].children[0].children[0].onclick = ()=>{alert('yi')}
     listItem.children[0].children[1].children[0].children[0].innerText = atts.title;
     listItem.children[0].children[1].children[1].innerText = atts.modified;
+    listItem.classList.remove('ls-project-row');
 }
 
 function addProject(projectObj, projectExists) {
     let newBox = document.createElement('li');
+    newBox.className = 'ls-project-row';
     newBox.innerHTML = getbox(projectObj.lsId, projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online);
     document.querySelector('ul.media-list').insertBefore(newBox, document.querySelector('ul.media-list').firstChild);
 }

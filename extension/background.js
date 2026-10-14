@@ -11,6 +11,15 @@ self.addEventListener = (function (original) {
 
 importScripts('background/socket.io.js', 'background/livescratchProject.js', 'background/auth.js');
 
+const API_PREFIX = '/apiv2';
+
+function addApiPrefix(serverUrl) {
+    const url = new URL(serverUrl);
+    const cleanPath = url.pathname.replace(/\/$/, '');
+    url.pathname = cleanPath.endsWith(API_PREFIX) ? cleanPath : `${cleanPath}${API_PREFIX}`;
+    return url.href.replace(/\/$/, '');
+}
+
 const getStorageValue = (key) => {
     return new Promise((resolve, reject) => {
         chrome.storage.local.get(key, (result) => {
@@ -28,10 +37,10 @@ const getApiUrl = async () => {
 
     if (customServer) {
         const serverUrl = await getStorageValue('server-url');
-        return serverUrl || 'https://livescratchapi.waakul.com';
+        return addApiPrefix(serverUrl || 'https://livescratchapi.waakul.com');
     }
 
-    return 'https://livescratchapi.waakul.com';
+    return addApiPrefix('https://livescratchapi.waakul.com');
 };
 
 let apiUrl;
@@ -43,7 +52,7 @@ const loadUrl = () => {
             resolve(); // Ensure this is final
         } catch (error) {
             console.error('Failed to get the API URL:', error);
-            apiUrl = 'https://livescratchapi.waakul.com';
+            apiUrl = addApiPrefix('https://livescratchapi.waakul.com');
             reject(error); // Only reject on actual failure
         }
     });
@@ -380,7 +389,7 @@ async function backgroundScript() {
                     chrome.notifications.create(null,
                         {
                             type: 'basic',
-                            title: 'Livescratch Chat',
+                            title: 'LiveScratch Chat',
                             contextMessage: `${msg.sender} says in '${msg.project}':`,
                             message: msg.text,
                             // iconUrl:chrome.runtime.getURL('img/livescratchfullres.png'),
@@ -472,19 +481,23 @@ async function backgroundScript() {
                             headers: { 'Content-Type': 'application/json', authorization: currentLsToken },
                         }).then(res => res.json()).catch(e => ({ err: e.toString() }))));
                 } else if (request.meta == 'shareWith') {
-                    let response = await fetch(`${apiUrl}/share/${request.id}/${request.username}/${uname}?pk=${request.pk}`, {
+                    const response = await fetch(`${apiUrl}/share/${request.id}/${request.username}/${uname}?pk=${request.pk}`, {
                         method: 'PUT',
                         headers: { authorization: currentLsToken },
                     });
-                    let statusCode = await response.status;
-                    sendResponse(statusCode);
+                    const data = await response.json().catch(() => ({}));
+                    sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your LiveScratch login expired.' : null) });
                 } else if (request.meta == 'unshareWith') {
-                    fetch(`${apiUrl}/unshare/${request.id}/${request.user}`, {
+                    const response = await fetch(`${apiUrl}/unshare/${request.id}/${request.user}`, {
                         method: 'PUT',
                         headers: { authorization: currentLsToken, uname },
                     });
+                    const data = await response.json().catch(() => ({}));
+                    sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your LiveScratch login expired.' : null) });
                 } else if (request.meta == 'getShared') {
-                    sendResponse(await (await fetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentLsToken, uname } })).json());
+                    const response = await fetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentLsToken, uname } });
+                    const data = await response.json();
+                    sendResponse(response.ok && !data.noauth ? data : { error: data.err || (data.noauth ? 'Your LiveScratch login expired.' : 'Could not load collaborators.') });
                 } else if (request.meta == 'getTitle') {
                     sendResponse((await (await fetch(`${apiUrl}/projectTitle/${request.lsId}`, { headers: { authorization: currentLsToken, uname } })).json()).title);
                 } else if (request.meta == 'leaveScratchId') {

@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 // Scratch Auth integration: https://auth.itinerary.eu.org/documentation/using-scratch-auth
 const SCRATCH_AUTH = 'https://auth.itinerary.eu.org';
+const API_PREFIX = '/apiv2';
 const pending = new Map();
 const TTL = 5 * 60_000;
 const attempts = new Map();
@@ -23,6 +24,8 @@ function publicBaseUrl() {
     try {
         const url = new URL(raw);
         if (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) return null;
+        const cleanPath = url.pathname.replace(/\/$/, '');
+        url.pathname = cleanPath.endsWith(API_PREFIX) ? cleanPath : `${cleanPath}${API_PREFIX}`;
         return url.href.replace(/\/$/, '');
     } catch { return null; }
 }
@@ -62,21 +65,27 @@ export function setPaths(app, users, sessions) {
         const item = pending.get(req.query.state);
         if (!item || Date.now() - item.createdAt > TTL || item.status !== 'waiting') return res.status(400).send('This login expired. Please start again from LiveScratch.');
         if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the login.');
+        item.status = 'verifying';
         try {
             const url = new URL('/api/auth/verifyToken', SCRATCH_AUTH);
             url.searchParams.set('privateCode', req.query.privateCode);
             const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
             if (!response.ok) throw new Error(`Scratch Auth returned ${response.status}`);
             const data = await response.json();
-            if (data.valid !== true || data.redirect !== item.redirect || !validUsername(data.username)) return res.status(403).send('Scratch Auth could not verify this login.');
+            if (data.valid !== true || data.redirect !== item.redirect || !validUsername(data.username)) {
+                pending.delete(req.query.state);
+                return res.status(403).send('Scratch Auth could not verify this login.');
+            }
             const user = userManager.getUser(data.username);
             user.verified = true;
             user.token = userManager.token();
             if (!userManager.persistUser(data.username)) throw new Error('Could not save authenticated user');
             item.status = 'complete';
             item.username = data.username;
-            res.redirect(303, `/auth/scratch/complete?state=${req.query.state}`);
+            item.token = user.token;
+            res.redirect(303, `${API_PREFIX}/auth/scratch/complete?state=${req.query.state}`);
         } catch (error) {
+            pending.delete(req.query.state);
             console.error('Scratch Auth verification failed:', error);
             res.status(503).send('Scratch Auth is temporarily unavailable. Please try again.');
         }
@@ -93,8 +102,8 @@ export function setPaths(app, users, sessions) {
         if (!item || item.status !== 'complete' || Date.now() - item.createdAt > TTL) return res.status(400).json({ err: 'Login is incomplete or expired.' });
         pending.delete(req.body.state);
         const user = userManager.findUser(item.username);
-        if (!user?.verified) return res.status(403).json({ err: 'Login failed.' });
-        res.json({ username: user.username, token: user.token });
+        if (!user?.verified || !authenticate(item.username, item.token)) return res.status(403).json({ err: 'Login was replaced by a newer sign in. Please try again.' });
+        res.json({ username: user.username, token: item.token });
     });
 
     app.post('/auth/logout', (req, res) => {

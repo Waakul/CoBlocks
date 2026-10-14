@@ -7,6 +7,7 @@ import { Blob } from 'node:buffer';
 import { countPopup, countRecent, countRecentRealtime, countRecentShared, countUniquePopup } from './recentUsers.js';
 import { getAuthStats } from './scratch-auth.js';
 import { numWithCreds, numWithoutCreds } from './scratch-auth.js';
+import { scratchLinkConflicts } from './projectAccess.js';
 
 const ensureDirectoryExistence = (filePath) => {
     const dirname = path.dirname(filePath);
@@ -334,7 +335,13 @@ class ProjectWrapper {
     }
 
     linkProject(scratchId, owner) {
-        this.linkedWith.push({ scratchId, owner });
+        const normalizedScratchId = String(scratchId);
+        const normalizedOwner = String(owner).toLowerCase();
+        const alreadyLinked = this.linkedWith.some(project =>
+            String(project.scratchId) === normalizedScratchId &&
+            String(project.owner).toLowerCase() === normalizedOwner,
+        );
+        if (!alreadyLinked) this.linkedWith.push({ scratchId: normalizedScratchId, owner });
         // this.linkedWith.push({scratchId,owner,version})
     }
 
@@ -508,19 +515,34 @@ export default class SessionManager {
 
     linkProject(id, scratchId, owner, version) {
         let project = this.getProject(id);
-        if (!project) { return; }
+        if (!project) return { ok: false, error: 'Project not found.' };
+        const existingEntry = this.getScratchProjectEntry(scratchId);
+        if (scratchLinkConflicts(existingEntry, id)) {
+            return { ok: false, conflict: true, error: 'This Scratch project is already linked to another LiveScratch project.' };
+        }
         project.linkProject(scratchId, owner, version);
         // this.scratchprojects[scratchId] = {owner,lsId:id}
-        this.makeScratchProjectEntry(scratchId, owner, id);
+        if (!this.makeScratchProjectEntry(scratchId, owner, id)) {
+            return { ok: false, error: 'Could not save the Scratch project link.' };
+        }
+        return { ok: true };
     }
 
     // constructor(owner,scratchId,json,lsId,title) {
     newProject(owner, scratchId, json, title) {
-        if (this.doesScratchProjectEntryExist(scratchId)) { return this.getProject(this.getScratchProjectEntry(scratchId).lsId); }
+        if (this.doesScratchProjectEntryExist(scratchId)) {
+            const entry = this.getScratchProjectEntry(scratchId);
+            const existingProject = entry?.lsId ? this.getProject(entry.lsId) : null;
+            if (existingProject) return existingProject;
+            this.deleteScratchProjectEntry(scratchId, entry?.lsId);
+        }
         let id = String(this.getNextId());
         let project = new ProjectWrapper(owner, scratchId, json, id, title);
         this.livescratch[id] = project;
-        this.makeScratchProjectEntry(scratchId, owner, id);
+        if (!this.makeScratchProjectEntry(scratchId, owner, id)) {
+            delete this.livescratch[id];
+            return null;
+        }
         // this.scratchprojects[scratchId] = {owner,lsId:id}
 
         return project;
@@ -528,7 +550,9 @@ export default class SessionManager {
 
     join(socket, id, username) {
         let project = this.getProject(id);
-        if (!project) { return; }
+        if (!project) return false;
+        const socketIdentity = this.socketMap[socket.id]?.username;
+        if (socketIdentity && String(socketIdentity).toLowerCase() !== String(username).toLowerCase()) return false;
         project.joinSession(socket, username);
         if (!(socket.id in this.socketMap)) {
             this.socketMap[socket.id] = { username: username, projects: [] };
@@ -537,6 +561,7 @@ export default class SessionManager {
             this.socketMap[socket.id].projects.push(project.id);
         }
         console.log(username + ' joined | lsId: ' + id + ', scratchId: ' + project.scratchId);
+        return true;
     }
     leave(socket, id, voidMap) {
         let project = this.getProject(id);
@@ -616,7 +641,8 @@ export default class SessionManager {
         console.log(`sessMngr: sharing ${id} with ${user} (usrId ${pk})`);
         let project = this.getProject(id);
         if (!project) { return; }
-        if (!project.sharedWith.includes(user)) project.sharedWith.push(user);
+        const normalizedUser = String(user).toLowerCase();
+        if (!project.sharedWith.some(name => String(name).toLowerCase() === normalizedUser)) project.sharedWith.push(user);
     }
     unshareProject(id, user) {
         console.log(`sessMngr: unsharing ${id} with ${user}`);
@@ -625,7 +651,7 @@ export default class SessionManager {
 
         project.linkedWith.filter(proj => (proj.owner.toLowerCase() == user.toLowerCase())).forEach(proj => {
             project.linkedWith.splice(project.linkedWith.indexOf(proj), 1);
-            this.deleteScratchProjectEntry(proj.scratchId);
+            this.deleteScratchProjectEntry(proj.scratchId, project.id);
             // delete this.scratchprojects[proj.scratchId]
             // let projectPatch = scratchprojectsPath + path.sep + sanitize(proj.scratchId + '');
             // if(fs.existsSync(projectPatch)) {
@@ -637,7 +663,7 @@ export default class SessionManager {
             project.owner = project.sharedWith[0] ? project.sharedWith[0] : '';
         }
 
-        let userIndex = project.sharedWith.indexOf(user);
+        let userIndex = project.sharedWith.findIndex(name => String(name).toLowerCase() === String(user).toLowerCase());
         if (userIndex != -1) {
             project.sharedWith.splice(userIndex, 1);
         }
@@ -657,6 +683,11 @@ export default class SessionManager {
         if (fs.existsSync(projectPath)) {
             try { fs.rmSync(projectPath); } catch (e) { console.error('error when deleting project file after unsharing with everyone', e); }
         }
+    }
+
+    persistProject(id) {
+        const project = this.getProject(id);
+        return !!project && saveMapToFolder({ [String(id)]: project }, livescratchPath);
     }
 
     getScratchToLSProject(scratchId) {
@@ -679,8 +710,11 @@ export default class SessionManager {
     }
     makeScratchProjectEntry(scratchId, owner, lsId) {
         try {
-            if (!scratchId) { return; }
+            if (!scratchId) { return false; }
+            const existing = this.getScratchProjectEntry(scratchId);
+            if (scratchLinkConflicts(existing, lsId)) return false;
             let scratchIdFilename = sanitize(scratchId + '');
+            if (!scratchIdFilename) return false;
             let filename = scratchprojectsPath + path.sep + scratchIdFilename;
             let entry = { owner, lsId };
             let fileData = JSON.stringify(entry);
@@ -688,7 +722,8 @@ export default class SessionManager {
             const temp = `${filename}.${process.pid}.tmp`;
             fs.writeFileSync(temp, fileData);
             fs.renameSync(temp, filename);
-        } catch (e) { console.error(e); }
+            return true;
+        } catch (e) { console.error(e); return false; }
     }
     doesScratchProjectEntryExist(scratchId) {
         if (!scratchId) { return false; }
@@ -696,13 +731,16 @@ export default class SessionManager {
         let filename = scratchprojectsPath + path.sep + scratchIdFilename;
         return fs.existsSync(filename);
     }
-    deleteScratchProjectEntry(scratchId) {
+    deleteScratchProjectEntry(scratchId, expectedLsId = null) {
         console.log(`DELETING scratch project entry ${scratchId}`);
-        if (!scratchId) { return; }
-        if (!this.doesScratchProjectEntryExist(scratchId)) { return; }
+        if (!scratchId) { return false; }
+        if (!this.doesScratchProjectEntryExist(scratchId)) { return false; }
+        const current = this.getScratchProjectEntry(scratchId);
+        if (expectedLsId !== null && String(current?.lsId) !== String(expectedLsId)) return false;
         let scratchIdFilename = sanitize(scratchId + '');
         let filename = scratchprojectsPath + path.sep + scratchIdFilename;
         fs.rmSync(filename);
+        return true;
     }
 
     // if 'from' is null, defaults to 'Livescratch'

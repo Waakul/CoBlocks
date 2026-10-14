@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
@@ -45,7 +46,7 @@
 
       <section id="settings-container">
       
-      <span id="settings-dropdown" style="z-index: 20; width: max-content; color: var(--Text-Solid); display: flex; flex-direction: row; gap: 2px; align-items: center;"><span class="material-symbols-outlined">settings</span>Settings<span class="material-symbols-outlined" style="margin-left: -3px; color: var(--Text);">arrow_drop_down</span></span>
+      <span id="settings-dropdown" role="button" tabindex="0" aria-expanded="false" aria-controls="settings" style="z-index: 20; width: max-content; color: var(--Text-Solid); display: flex; flex-direction: row; gap: 2px; align-items: center;"><span class="material-symbols-outlined">settings</span>Settings<span class="material-symbols-outlined" style="margin-left: -3px; color: var(--Text);">arrow_drop_down</span></span>
       <section id="settings">
       <section id="project-chat">
         <span>Project Chats:</span>
@@ -144,10 +145,9 @@
       <hr/>
 
       <div id="links" class="flex-horiz">
-        <a id="link-hub" class="tooltip" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
-          <img src="/img/LogoLiveScratch.svg"/>
-          <span>Hub</span>
-          <span class="tooltiptext tooltip-right">Coming Soon!</span>
+        <a id="link-github" href="#" aria-label="Open LiveScratch on GitHub" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.2 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C14.9 4.8 16 5.1 16 5.1c.6 1.6.2 2.9.1 3.2.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z"/></svg>
+          <span>GitHub</span>
         </a>
 
         <a id="link-uptime" href="#" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">

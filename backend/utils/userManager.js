@@ -34,13 +34,13 @@ export default class UserManager {
         console.log(base + ' friending ' + to);
         const friends = this.getUser(base)?.friends;
         const friend = to?.toLowerCase();
-        if (friends && friend && !friends.includes(friend)) friends.push(friend);
+        if (friends && friend && !friends.some(name => String(name).toLowerCase() === friend)) friends.push(friend);
     }
     unbefriend(base, take) {
         console.log(base + ' unfriending ' + take);
         take = take?.toLowerCase();
         const friends = this.getUser(base)?.friends;
-        const index = friends?.indexOf(take) ?? -1;
+        const index = friends?.findIndex(name => String(name).toLowerCase() === take) ?? -1;
         if (index !== -1) friends.splice(index, 1);
     }
 
@@ -127,11 +127,13 @@ export default class UserManager {
 
     newProject(owner, lsId) {
         console.log(`usrMngr: adding new project ${lsId} owned by ${owner}`);
-        if (this.getUser(owner).myProjects.indexOf(lsId) != -1) { return; }
-        this.getUser(owner).myProjects.push(lsId);
+        const id = String(lsId);
+        if (this.getUser(owner).myProjects.map(String).includes(id)) { return; }
+        this.getUser(owner).myProjects.push(id);
     }
 
     share(username, lsId, from) {
+        lsId = String(lsId);
         from = from?.toLowerCase();
         console.log(`usrMngr: sharing ${lsId} with ${username} from ${from}`);
         let map = this.getUser(username)?.sharedTo;
@@ -146,7 +148,7 @@ export default class UserManager {
         if (!map) { return; }
         delete map[lsId];
 
-        let ownedIndex = this.getUser(username)?.myProjects.indexOf(lsId);
+        let ownedIndex = this.getUser(username)?.myProjects.map(String).indexOf(String(lsId));
         if (ownedIndex != -1) {
             this.getUser(username)?.myProjects.splice(ownedIndex, 1);
         }
@@ -164,7 +166,7 @@ export default class UserManager {
         return objs.filter((proj) => (user.friends.indexOf(proj.from?.toLowerCase()) != -1)).map((proj) => (proj.id));
     }
     getAllProjects(username) {
-        return this.getUser(username).myProjects.concat(this.getShared(username));
+        return [...new Set(this.getUser(username).myProjects.concat(this.getShared(username)).map(String))];
     }
 
     rand() {

@@ -40,7 +40,7 @@ test('Scratch Auth verifies the redirect and issues a one-time LiveScratch token
     assert.equal(start.statusCode, 200);
     const { state, url } = start.body;
     const redirect = Buffer.from(new URL(url).searchParams.get('redirect'), 'base64').toString();
-    assert.equal(redirect, `https://livescratchapi.waakul.com/auth/scratch/callback?state=${state}`);
+    assert.equal(redirect, `https://livescratchapi.waakul.com/apiv2/auth/scratch/callback?state=${state}`);
 
     const originalFetch = global.fetch;
     global.fetch = async () => ({ ok: true, json: async () => ({ valid: true, username: 'Alice', redirect }) });
@@ -48,7 +48,7 @@ test('Scratch Auth verifies the redirect and issues a one-time LiveScratch token
         const callback = response();
         await routes.get('GET /auth/scratch/callback')({ query: { state, privateCode: 'provider-code' } }, callback);
         assert.equal(callback.statusCode, 303);
-        assert.equal(callback.headers.location, `/auth/scratch/complete?state=${state}`);
+        assert.equal(callback.headers.location, `/apiv2/auth/scratch/complete?state=${state}`);
 
         const finish = response();
         routes.get('POST /auth/scratch/finish')({ body: { state } }, finish);
@@ -84,5 +84,53 @@ test('Scratch Auth rejects a result for a different redirect', async () => {
         const callback = response();
         await routes.get('GET /auth/scratch/callback')({ query: { state: start.body.state, privateCode: 'provider-code' } }, callback);
         assert.equal(callback.statusCode, 403);
+    } finally { global.fetch = originalFetch; }
+});
+
+test('an older login cannot claim the token from a newer login', async () => {
+    process.env.PUBLIC_BASE_URL = 'https://livescratchapi.waakul.com';
+    const routes = new Map();
+    const app = {
+        get(path, handler) { routes.set(`GET ${path}`, handler); },
+        post(path, handler) { routes.set(`POST ${path}`, handler); },
+    };
+    const users = new Map();
+    let tokenNumber = 0;
+    const manager = {
+        getUser(username) {
+            const key = username.toLowerCase();
+            if (!users.has(key)) users.set(key, { username, verified: false, token: '' });
+            return users.get(key);
+        },
+        findUser(username) { return users.get(username.toLowerCase()); },
+        token() { tokenNumber++; return `token-${tokenNumber}`; },
+        persistUser() { return true; },
+    };
+    setPaths(app, manager, { canUserAccessProject() { return true; } });
+
+    const firstStart = response();
+    const secondStart = response();
+    routes.get('POST /auth/scratch/start')({ ip: 'parallel-login', body: {} }, firstStart);
+    routes.get('POST /auth/scratch/start')({ ip: 'parallel-login', body: {} }, secondStart);
+    const redirects = new Map([
+        ['first', Buffer.from(new URL(firstStart.body.url).searchParams.get('redirect'), 'base64').toString()],
+        ['second', Buffer.from(new URL(secondStart.body.url).searchParams.get('redirect'), 'base64').toString()],
+    ]);
+    const originalFetch = global.fetch;
+    global.fetch = async url => {
+        const code = new URL(url).searchParams.get('privateCode');
+        return { ok: true, json: async () => ({ valid: true, username: 'Alice', redirect: redirects.get(code) }) };
+    };
+    try {
+        await routes.get('GET /auth/scratch/callback')({ query: { state: firstStart.body.state, privateCode: 'first' } }, response());
+        await routes.get('GET /auth/scratch/callback')({ query: { state: secondStart.body.state, privateCode: 'second' } }, response());
+
+        const staleFinish = response();
+        routes.get('POST /auth/scratch/finish')({ body: { state: firstStart.body.state } }, staleFinish);
+        assert.equal(staleFinish.statusCode, 403);
+
+        const currentFinish = response();
+        routes.get('POST /auth/scratch/finish')({ body: { state: secondStart.body.state } }, currentFinish);
+        assert.equal(currentFinish.body.token, 'token-2');
     } finally { global.fetch = originalFetch; }
 });

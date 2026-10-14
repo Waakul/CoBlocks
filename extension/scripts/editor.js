@@ -2,6 +2,7 @@ console.log('livescratch Editor Inject Running...');
 // get exId
 const exId = document.querySelector('.livescratch-ext').dataset.exId;
 let apiUrl = '';
+const logoUrl = document.querySelector('.livescratch-ext-2')?.dataset.logoUrl || '';
 chrome.runtime.sendMessage(exId, {meta: 'getAPI-URL'}, function(response){
     apiUrl = response.apiURL;
 });
@@ -231,6 +232,7 @@ async function joinExistingLivescratch(id) {
 }
 
 function unshareLivescratch() {
+    if (!confirm('Unlink this Scratch project from LiveScratch? Collaborators will lose access to this copy.')) return;
     chrome.runtime.sendMessage(exId,{meta:'leaveScratchId',scratchId});
     removeLivescratchButtons();
     livescratchDeleted=true;
@@ -2198,126 +2200,172 @@ function outlineBlock(blockId, username) {
 /////........................ GUI INJECTS .........................//////
 console.log('running gui inject...');
 let shareDropdown = `
-<container style="width:200px; row-gap: 5px; display:flex;flex-direction:column;background-color: hsla(260, 60%, 60%, 1);padding:10px; border-radius: 17px;">
-
-
-<div  style="color:white;font-weight:normal;font-face='Helvetica Neue','Helvetica',Arial,sans-serif">   
-
-
-<sharedWith style="display:flex;flex-direction: column;">
-        <text style="display:flex;align-self: left;padding-left:4px; padding-top:5px;padding-bottom:5px;font-size: large;">
-            Shared With 
-            <unshare style="font-size:14px !important; align-self:center; margin-left:50px; justify-self:end; text-decoration:underline; color:#09004dd1;  cursor:pointer; padding:2px; background-color:rgba(255,255,255,0.15); border-radius:5px;" onclick="unshareLivescratch()">Unlink</unshare>
-        </text>
-        <sharedList  style="overflow: auto; max-height: 350px; display:flex; min-height: 20px; border-radius:10px;gap:5px;flex-direction: column;  ">
-            <cell id="lsModalExample" style="display:none; gap:10px;flex-direction: row; align-items: center;">
-                <pic  style='width:40px; height:40px; border-radius: 100%; display:flex;background-position: center;background-size:cover; background-image:url("https://i.pinimg.com/originals/12/ff/9c/12ff9cd0f45317c362f0c87e2e55bd6c.jpg");';>
-                </pic>
-                <name onclick='window.open("https:\/\/scratch.mit.edu/users/" + this.innerText)', class="sharedName" style="cursor:pointer; max-width:122px;overflow:hidden; display:flex;align-self: center; font-size: large;font-weight:bold;">
-                    WazzoTV
-                </name>
-                <x onclick="removeCollaborator(this.username)" style="cursor:pointer; display:flex; align:right;font-size:large; border-radius: 100%;padding: 0px;">
-                    ✕
-                </x>
-            </cell>
-        </sharedList>
-    </sharedWith>
-    <hr style="display: flex; width: 100%; height:1px;border:none;background-color:#16488f"></hr>
-    <search style="display:flex;flex-direction: column; ">
-        <text style="display:flex;flex-direction:column;align-self:  left;padding-top:5px;padding-bottom:5px;padding-left:4px; font-size: large;">
-            Add Collaborators
-            <textt style="font-size:small; color:#ffffffb3; font-style:italic">They must add you as a friend</textt>
-            </text>
-        <input id='searchy' style="color:black; display: flex;  margin-bottom:10px; align-self: center;border-radius: 10px; border-style: none; width:190px; height:30px">
-
-
-    </input>
-        <results style="display: flex; height: 40px;">
-            <cell class="result" onclick="if(opening){opening=false;return;}addCollaborator(this.username);"  id="resultt" style="cursor:pointer; visibility: hidden; padding-right:20px; border-radius: 20px; display:flex; gap:10px;flex-direction: row; align-items: center;">
-                <!-- <highlight class="resultHighlight" style="z-index: 0;position:absolute; width:240px; height: 50px; left:8px">
-
-                </highlight> -->
-                <pic id="resultPic" style='pointer-events:none;z-index: 1;width:40px; height:40px; border-radius: 100%; display:flex;background-position: center;background-size:cover;';>
-                    <x id='plus' style="z-index: 1; color:rgb(69, 35, 136);margin-left:10px;display:flex; width:30px; border-radius: 100%;padding: 2px;font-weight: bold;font-size: x-large;">
-                        +
-                   </x>
-                </pic>
-                <name id="resultName" onclick='opening=true;window.open("https:\/\/scratch.mit.edu/users/" + this.innerText)' style="overflow:hidden;max-width:144px; z-index: 1;display:flex;align-self: center; font-size: large;font-weight:bold;">
-
-                </name>
-                
-            </cell>
-        </results>
-
-   
-    </search>
-
+<div class="ls-collab-panel" role="dialog" aria-label="LiveScratch collaboration">
+    <div class="ls-collab-header">
+        <div class="ls-collab-brand"><img src="${logoUrl}" alt=""></div>
+        <div class="ls-collab-heading">
+            <strong>Collaboration</strong>
+            <span>Manage this LiveScratch project</span>
+        </div>
+        <button class="ls-icon-button" type="button" aria-label="Close" onclick="lsDropdown.style.display='none';livescratchButton.setAttribute('aria-expanded','false')">&times;</button>
     </div>
-    </container>
+    <div class="ls-collab-stats" aria-live="polite">
+        <span><strong id="lsCollabCount">0</strong> <span id="lsPeopleLabel">people</span></span>
+        <span><i class="ls-online-dot"></i><strong id="lsOnlineCount">0</strong> online</span>
+    </div>
+    <div class="ls-section-heading">
+        <div><strong>Project access</strong><span>People who can edit with you</span></div>
+        <button class="ls-text-button" type="button" onclick="refreshShareModal(true)">Refresh</button>
+    </div>
+    <div id="lsSharedList" class="ls-shared-list">
+        <div id="lsModalExample" class="ls-collab-member" hidden>
+            <span class="ls-member-avatar"><i class="ls-member-presence"></i></span>
+            <button class="sharedName ls-member-name" type="button"></button>
+            <span class="ls-member-role">Collaborator</span>
+            <button class="ls-remove-collaborator" type="button" aria-label="Remove collaborator">&times;</button>
+        </div>
+        <div id="lsEmptyCollaborators" class="ls-empty-state">No collaborators yet</div>
+    </div>
+    <div class="ls-divider"></div>
+    <label class="ls-add-label" for="searchy"><strong>Add a collaborator</strong><span>Enter their exact Scratch username</span></label>
+    <div class="ls-search-wrap">
+        <input id="searchy" type="search" autocomplete="off" spellcheck="false" placeholder="Scratch username" aria-label="Scratch username">
+        <span id="lsSearchSpinner" class="ls-mini-spinner" hidden></span>
+    </div>
+    <button class="result ls-search-result" type="button" id="resultt" hidden>
+        <span id="resultPic" class="ls-result-avatar"></span>
+        <span class="ls-result-copy"><strong id="resultName"></strong><small>Click to add</small></span>
+        <span id="plus" class="ls-result-add">+</span>
+    </button>
+    <div id="lsShareStatus" class="ls-share-status" role="status" aria-live="polite"></div>
+    <div class="ls-collab-actions">
+        <button type="button" class="ls-secondary-button" onclick="copyLivescratchLink()">Copy project link</button>
+        <button type="button" class="ls-danger-button" onclick="unshareLivescratch()">Unlink project</button>
+    </div>
+</div>
 
 `;
 let shareScript = `{
+window.lsSearchName = document.querySelector('#resultName');
+window.lsSearchResult = document.querySelector('#resultt');
+window.lsSearchAvatar = document.querySelector('#resultPic');
+window.lsCollaboratorTemplate = document.querySelector('#lsModalExample');
+window.lsSearchInput = document.querySelector('#searchy');
+window.lsShareMembers = {};
+let searchTimer;
+let searchSequence = 0;
 
-opening = false
-let result = document.querySelector('#resultName')
-resultt = document.querySelector('#resultt')
-let plus = document.querySelector('#plus')
-let resultPic = document.querySelector('#resultPic')
-lsModalExample = document.querySelector('#lsModalExample')
-
-        earch =document.querySelector('#searchy')
-
-        shareDivs = {}
-
-        
-        earch.addEventListener("keyup", function(event) {
-  // Number 13 is the "Enter" key on the keyboard
-  if (event.keyCode === 13) {
-    // Cancel the default action, if needed
-    addCollaborator(earch.value)
-  }
+lsSearchResult.addEventListener('click', () => addCollaborator(lsSearchResult.username));
+lsSearchInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        if (lsSearchResult.username && !lsSearchResult.hidden) addCollaborator(lsSearchResult.username);
+    }
 });
 
-        earch.oninput = async ()=>{
-            let currentSearching = earch.value.toLowerCase()
-            let user = await getUserInfo(earch.value)
-            if(currentSearching != earch.value.toLowerCase()) { return}
-            if(user) {
-           
-            result.innerText = user.username
-            result.parentNode.username = user.username
-
-            resultt.style.visibility = 'visible'
-            resultt.style.display = 'flex'
-            resultPic.style.backgroundImage = \`url('\${user.pic}')\`  
-             } else {
-                 resultt.style.visibility = 'hidden'
-             }
+lsSearchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const query = lsSearchInput.value.trim();
+    const sequence = ++searchSequence;
+    lsSearchResult.hidden = true;
+    lsSearchResult.username = '';
+    document.querySelector('#lsSearchSpinner').hidden = query.length < 2;
+    if (query.length < 2) return;
+    searchTimer = setTimeout(async () => {
+        try {
+            const user = await getUserInfo(query);
+            if (sequence !== searchSequence || query.toLowerCase() !== lsSearchInput.value.trim().toLowerCase()) return;
+            document.querySelector('#lsSearchSpinner').hidden = true;
+            if (!user) {
+                setShareStatus('No Scratch user found.', 'error');
+                return;
+            }
+            setShareStatus('');
+            lsSearchName.innerText = user.username;
+            lsSearchResult.username = user.username;
+            lsSearchAvatar.style.backgroundImage = \`url('\${user.pic}')\`;
+            lsSearchResult.hidden = false;
+        } catch (error) {
+            document.querySelector('#lsSearchSpinner').hidden = true;
+            setShareStatus('Could not search Scratch right now.', 'error');
         }
-
-        function multiplyNode(node, count, deep) {
-    for (var i = 0, copy; i < count - 1; i++) {
-        copy = node.cloneNode(deep);
-        node.parentNode.insertBefore(copy, node);
-    }
-}
-
-multiplyNode(document.querySelector('cell'), 2, true);
-
-// fetch(\`\${apiUrl}/share/\${lsId}\`).then(res=>{res.json().then(json=>json.forEach(addCollaborator))})
+    }, 350);
+});
 }
 `;
 let shareCSS = `
-
-.sharedName:hover {
-    text-decoration: underline;
+.ls-collab-panel, .ls-collab-panel * { box-sizing: border-box; }
+.ls-collab-panel {
+    width: min(320px, calc(100vw - 24px)); min-width: 0; max-width: 320px; max-height: calc(100vh - 72px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+    color: #18251f; background: #fff; border: 1px solid rgba(34, 72, 57, .14);
+    border-radius: 16px; box-shadow: 0 18px 46px rgba(22, 43, 35, .24);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
-#resultName:hover {
-    text-decoration: underline;
-}
-
-.result:hover {
-    background: rgba(255,255,255,0.2);
+.ls-collab-panel > * { min-width: 0; max-width: 100%; }
+.ls-collab-header { display: flex; align-items: center; gap: 10px; }
+.ls-collab-brand { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(135deg,#eafaf3,#e8f3ff); }
+.ls-collab-brand img { width: 32px; height: 32px; object-fit: contain; }
+.ls-collab-heading { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.ls-collab-heading strong { font-size: 17px; line-height: 20px; }
+.ls-collab-heading span, .ls-section-heading span, .ls-add-label span { color: #66736d; font-size: 12px; line-height: 16px; }
+.ls-icon-button, .ls-text-button, .ls-remove-collaborator, .ls-secondary-button, .ls-danger-button, .ls-member-name, .ls-search-result { font: inherit; }
+.ls-icon-button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #f0f5f3; color: #405049; font-size: 22px; cursor: pointer; }
+.ls-icon-button:hover { background: #e3ece8; }
+.ls-collab-stats { display: flex; gap: 8px; }
+.ls-collab-stats > span { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; background: #f0f8f5; color: #486158; font-size: 12px; }
+.ls-online-dot, .ls-member-presence { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #20b86a; box-shadow: 0 0 0 2px #fff; }
+.ls-section-heading { display: flex; align-items: end; justify-content: space-between; }
+.ls-section-heading > div, .ls-add-label { display: flex; flex-direction: column; }
+.ls-section-heading strong, .ls-add-label strong { font-size: 14px; }
+.ls-text-button { border: 0; padding: 4px; background: transparent; color: #357b62; font-weight: 700; cursor: pointer; }
+.ls-text-button:hover { text-decoration: underline; }
+.ls-shared-list { max-height: 188px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 0 -4px; padding: 0 4px; }
+.ls-collab-member { min-height: 48px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto 28px; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 10px; }
+.ls-collab-member[hidden], .ls-empty-state[hidden], .ls-mini-spinner[hidden] { display: none; }
+.ls-collab-member:hover { background: #f4f8f6; }
+.ls-member-avatar, .ls-result-avatar { position: relative; width: 38px; height: 38px; border-radius: 50%; background-position: center; background-size: cover; background-color: #dfe9e5; }
+.ls-member-presence { display: none; position: absolute; right: 0; bottom: 0; }
+.ls-collab-member.is-online .ls-member-presence { display: block; }
+.ls-member-name { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: #23342d; font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ls-member-name:hover { color: #28775a; text-decoration: underline; }
+.ls-member-role { padding: 3px 7px; border-radius: 999px; background: #edf3f0; color: #68756f; font-size: 10px; font-weight: 700; }
+.ls-collab-member.is-owner .ls-member-role { background: #fff1c7; color: #795c0a; }
+.ls-remove-collaborator { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #9b5555; font-size: 20px; cursor: pointer; }
+.ls-remove-collaborator:hover { background: #ffebeb; color: #ba3030; }
+.ls-empty-state { padding: 14px; border: 1px dashed #cbd8d2; border-radius: 10px; color: #74827c; font-size: 12px; text-align: center; }
+.ls-divider { height: 1px; background: #e5ece9; }
+.ls-search-wrap { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
+#searchy { display: block !important; box-sizing: border-box !important; inline-size: 100% !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-inline-size: 100% !important; height: 40px !important; margin: 0 !important; padding: 0 40px 0 12px !important; border: 1px solid #c7d3ce !important; border-radius: 10px !important; outline: 0; color: #1f2d27; background: #fff; font: inherit; }
+#searchy:focus { border-color: #42a77e; box-shadow: 0 0 0 3px rgba(66,167,126,.16); }
+.ls-mini-spinner { position: absolute; right: 13px; top: 12px; width: 16px; height: 16px; border: 2px solid #cbe2d8; border-top-color: #31956d; border-radius: 50%; animation: spin .7s linear infinite; }
+.ls-search-result { width: 100%; display: grid; grid-template-columns: 38px 1fr 28px; align-items: center; gap: 10px; padding: 7px; border: 1px solid #dce7e2; border-radius: 11px; color: #203129; background: #f7fbf9; cursor: pointer; text-align: left; }
+.ls-search-result:hover { border-color: #8fcab2; background: #edf8f3; }
+.ls-search-result[hidden] { display: none; }
+.ls-result-copy { min-width: 0; display: flex; flex-direction: column; }
+.ls-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-result-copy small { color: #687970; }
+.ls-result-add { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; background: #3ca77c; font-size: 20px; }
+.ls-share-status { min-height: 16px; color: #587067; font-size: 12px; }
+.ls-share-status.is-error { color: #b43b3b; }
+.ls-share-status.is-success { color: #24815e; }
+.ls-collab-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ls-secondary-button, .ls-danger-button { min-width: 0; min-height: 36px; padding: 7px 10px; border-radius: 9px; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ls-secondary-button { border: 1px solid #b9ccc4; color: #315d4c; background: #fff; }
+.ls-secondary-button:hover { background: #eef7f3; }
+.ls-danger-button { border: 1px solid #efc5c5; color: #a33939; background: #fff7f7; }
+.ls-danger-button:hover { background: #ffecec; }
+#lsShare { transition: transform .16s ease, filter .16s ease, box-shadow .16s ease; }
+#lsShare:hover { filter: brightness(1.06); transform: translateY(-1px); }
+#lsShare:focus-visible { outline: 3px solid rgba(95,210,165,.42); outline-offset: 2px; }
+.ls-share-button-icon { width: 18px; height: 18px; display: inline-flex; }
+.ls-share-button-icon svg { width: 100%; height: 100%; }
+@media (max-width: 360px) {
+    .ls-collab-panel { padding: 13px; gap: 10px; }
+    .ls-collab-actions { grid-template-columns: 1fr; }
+    .ls-collab-member { grid-template-columns: 34px minmax(0,1fr) auto; }
+    .ls-collab-member .ls-remove-collaborator { grid-column: 3; }
+    .ls-member-role { display: none; }
 }
 .livescratchloader {
     border: 3px solid #5fd2a5;
@@ -2589,66 +2637,136 @@ async function getWithPic(user, username = null) {
 
 
 async function addCollaboratorGUI (user,omitX){
-    if(user.username.toLowerCase() in shareDivs) {return;}
     if(!user) {return;}
+    if(user.username.toLowerCase() in lsShareMembers) {return;}
 
-    let newCollab = lsModalExample.cloneNode(-1);
-    // console.log(newCollab)
-    newCollab.style.display = 'flex';
-    Array.from(newCollab.children).find(elem=>elem.localName =='name').innerText = user.username;
-    let x = Array.from(newCollab.children).find(elem=>elem.localName =='x');
+    let newCollab = lsCollaboratorTemplate.cloneNode(-1);
+    newCollab.removeAttribute('id');
+    newCollab.hidden = false;
+    newCollab.dataset.username = user.username.toLowerCase();
+    const name = newCollab.querySelector('.ls-member-name');
+    name.innerText = user.username;
+    name.onclick = () => window.open(`https://scratch.mit.edu/users/${encodeURIComponent(user.username)}`);
+    let x = newCollab.querySelector('.ls-remove-collaborator');
     if(omitX === true) {
         x.remove();
+        newCollab.classList.add('is-owner');
+        newCollab.querySelector('.ls-member-role').innerText = 'Owner';
     } else {
         x.username = user.username;
+        x.onclick = () => removeCollaborator(user.username);
     }
-    Array.from(newCollab.children).find(elem=>elem.localName =='pic').style.backgroundImage = `url('${user.pic}')`;  
-    shareDivs[user.username.toLowerCase()] = newCollab;
-    lsModalExample.parentNode.append(newCollab);
+    newCollab.querySelector('.ls-member-avatar').style.backgroundImage = `url('${user.pic}')`;
+    lsShareMembers[user.username.toLowerCase()] = newCollab;
+    const sharedList = document.querySelector('#lsSharedList');
+    sharedList.insertBefore(newCollab, document.querySelector('#lsEmptyCollaborators'));
 
-    resultt.style.visibility = 'hidden';
-    earch.value = '';
-    earch.oninput();
+    lsSearchResult.hidden = true;
+    lsSearchInput.value = '';
+    updateCollaboratorSummary();
 }
 
 async function removeCollaboratorGUI (username) {
-    if(!(username.toLowerCase() in shareDivs)) {return;}
-    shareDivs[username.toLowerCase()].remove();
-    delete shareDivs[username.toLowerCase()];
+    if(!(username.toLowerCase() in lsShareMembers)) {return;}
+    lsShareMembers[username.toLowerCase()].remove();
+    delete lsShareMembers[username.toLowerCase()];
+    updateCollaboratorSummary();
 }
 
 function removeAllCollaboratorsGUI() {
-    Object.values(shareDivs).forEach(div=>div.remove());
-    shareDivs = {};
+    Object.values(lsShareMembers).forEach(div=>div.remove());
+    lsShareMembers = {};
+    updateCollaboratorSummary();
 }
 
 async function addCollaborator(username) {
-    if(username.toLowerCase() in shareDivs) {return;}
+    if (!username) return;
+    if(username.toLowerCase() in lsShareMembers) {return;}
     let user = await getUserInfo(username);
-    if(!user) {return;}
+    if(!user) { setShareStatus('No Scratch user found.', 'error'); return; }
+    setShareStatus(`Adding @${user.username}...`);
     chrome.runtime.sendMessage(exId,{meta:'shareWith','username':user.username,id:lsId,pk:user.pk}, function (response) {
-        if (response===200) {
+        if (response?.ok) {
             addCollaboratorGUI(user);
+            setShareStatus(`@${user.username} can now collaborate.`, 'success');
+            creditCollabers([...Object.keys(lsShareMembers)]);
         } else {
-            alert('The user you tried to add doesnt have livescratch!');
+            setShareStatus(response?.error || 'This user must sign in to LiveScratch first.', 'error');
         }
     });
-    creditCollabers([...Object.keys(shareDivs)]);
 }
 
 function removeCollaborator(user) {
-    removeCollaboratorGUI(user);
-    chrome.runtime.sendMessage(exId,{meta:'unshareWith',user,id:lsId});
+    if (!confirm(`Remove @${user} from this project?`)) return;
+    setShareStatus(`Removing @${user}...`);
+    chrome.runtime.sendMessage(exId,{meta:'unshareWith',user,id:lsId}, response => {
+        if (response?.ok) {
+            removeCollaboratorGUI(user);
+            setShareStatus(`@${user} was removed.`, 'success');
+            creditCollabers([...Object.keys(lsShareMembers)]);
+        } else {
+            setShareStatus(response?.error || `Could not remove @${user}.`, 'error');
+        }
+    });
 }
 
-function refreshShareModal() {
+function setShareStatus(message, type = '') {
+    const status = document.querySelector('#lsShareStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.className = `ls-share-status${type ? ` is-${type}` : ''}`;
+}
+
+function updateCollaboratorSummary(onlineUsers = null) {
+    const members = Object.values(lsShareMembers);
+    const empty = document.querySelector('#lsEmptyCollaborators');
+    const count = document.querySelector('#lsCollabCount');
+    if (empty) empty.hidden = members.length > 1;
+    if (count) count.textContent = members.length;
+    const peopleLabel = document.querySelector('#lsPeopleLabel');
+    if (peopleLabel) peopleLabel.textContent = members.length === 1 ? 'person' : 'people';
+    if (!onlineUsers) return;
+    const onlineNames = new Set(onlineUsers.map(user => user.username.toLowerCase()));
+    members.forEach(member => member.classList.toggle('is-online', onlineNames.has(member.dataset.username)));
+    const onlineCount = document.querySelector('#lsOnlineCount');
+    if (onlineCount) onlineCount.textContent = onlineNames.size;
+}
+
+function refreshCollaborationPresence() {
+    if (!lsId) return;
+    chrome.runtime.sendMessage(exId, {meta:'getActive', id:lsId}, response => {
+        if (Array.isArray(response)) updateCollaboratorSummary(response);
+    });
+}
+
+async function copyLivescratchLink() {
+    try {
+        await navigator.clipboard.writeText(location.href);
+        setShareStatus('Project link copied.', 'success');
+    } catch (error) {
+        setShareStatus('Could not copy the link. Copy it from the address bar.', 'error');
+    }
+}
+
+function refreshShareModal(showStatus = false) {
     if(!lsId) {return;}
+    if (showStatus) setShareStatus('Refreshing...');
     return new Promise(promRes=>{chrome.runtime.sendMessage(exId,{meta:'getShared',id:lsId},async (res)=>{
+        if (!Array.isArray(res)) {
+            setShareStatus(res?.error || res?.err || 'Could not load collaborators.', 'error');
+            promRes();
+            return;
+        }
         removeAllCollaboratorsGUI();
-        for (boi of res) {if(!boi.pk) {console.log('oi!',boi);boi.pk = (await getUserInfo(boi.username)).pk;};console.log(boi);}
-        res.forEach(getWithPic);
-        addCollaboratorGUI(res.shift(),true);
-        res.forEach(addCollaboratorGUI);
+        for (const collaborator of res) {
+            if (!collaborator.pk) collaborator.pk = (await getUserInfo(collaborator.username))?.pk;
+        }
+        const collaborators = await Promise.all(res.map(user => getWithPic(user)));
+        const owner = collaborators.shift();
+        if (owner) await addCollaboratorGUI(owner,true);
+        for (const collaborator of collaborators) await addCollaboratorGUI(collaborator);
+        refreshCollaborationPresence();
+        if (showStatus) setShareStatus('Collaborators updated.', 'success');
         promRes();
     });});
 }
@@ -2658,23 +2776,40 @@ function makeLivescratchButton(sharebutton) {
     let button = document.createElement('livescratch-init');
     button.id = 'lsShare';
     button.className = Array.from(sharebutton.classList).filter(e=>e.includes('button_outlined-button')||e.includes('menu-bar_menu-bar-button')).join(' ');
-    button.style.marginRight = '20px';
-    button.style.paddingLeft = '7px';
-    button.style.paddingRight = '7px';
-    button.style.gap = '7px';
-    // button.style.background = ' linear-gradient(90deg, rgba(51,0,54,1) 0%, rgba(255,0,113,1) 60%)'
-    button.style.background = '#5fd2a5'; // livescratch green
-    button.style.color = '#0c1a15';
+    button.style.marginRight = '10px';
+    button.style.paddingLeft = '10px';
+    button.style.paddingRight = '10px';
+    button.style.gap = '6px';
+    button.style.background = 'linear-gradient(115deg, #56c997, #48a9ef)';
+    button.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,.28), 0 2px 8px rgba(22,70,51,.18)';
+    button.style.color = '#fff';
     button.style.display = 'flex';
     button.style.flexDirection = 'row';
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', 'Open LiveScratch collaboration');
+    button.setAttribute('aria-expanded', 'false');
+    button.title = 'Open LiveScratch collaboration';
+    button.onkeydown = event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            button.click();
+        }
+    };
+
+    let icon = document.createElement('span');
+    icon.className = 'ls-share-button-icon';
+    icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9" r="2.5"></circle><path d="M3.5 19c.5-3.2 2.4-5 5.5-5s5 1.8 5.5 5M14 14.5c3.5-.5 5.6 1 6 4.5"></path></svg>';
 
     let text = document.createElement('text');
     text.style.textAlign = 'center';
-    text.innerHTML = 'Livescratch<br>Share';
+    text.style.fontWeight = '700';
+    text.innerHTML = 'LiveScratch';
 
     let loader = document.createElement('loader');
     loader.className = 'livescratchloader';
     loader.style.display = 'none';
+    button.appendChild(icon);
     button.appendChild(loader);
     button.appendChild(text);
     return button;
@@ -2701,7 +2836,7 @@ function makeRevertButton(communityButton) {
 
     let text = document.createElement('text');
     text.style.textAlign = 'center';
-    text.innerHTML = 'Revert (LS)';
+    text.innerHTML = 'LiveScratch Revert';
 
     button.appendChild(text);
     return button;
@@ -2807,7 +2942,7 @@ let lsActivateClick = async ()=>{
 
     chrome.runtime.sendMessage(exId,{json,meta:'create',scratchId,title:store.getState().preview.projectInfo.title},async (response)=>{
         if(response.noauth || response.err) {
-            showBlStartError(response.noauth ? 'Livescratch hasnt verified you yet.' : response.err);
+            showBlStartError(response.noauth ? 'LiveScratch has not verified your account yet.' : response.err);
             livescratchButton.onclick = lsActivateClick;
             return;
         }
@@ -2829,7 +2964,7 @@ let lsActivateClick = async ()=>{
 
         // add livescratch ref in instructions credits
         // addToCredits('Made with BIocklive #blklv')
-        creditCollabers(Object.keys(shareDivs));
+        creditCollabers(Object.keys(lsShareMembers));
 
         // stop spinny
         document.querySelector('loader.livescratchloader').style.display = 'none';
@@ -2842,7 +2977,12 @@ let lsActivateClick = async ()=>{
 
     });
 };
-let lsShareClick = ()=>{console.log('clicked'); lsDropdown.style.display = (lsDropdown.style.display == 'none' ? 'flex' : 'none'); refreshShareModal(); };
+let lsShareClick = ()=>{
+    const opening = lsDropdown.style.display === 'none';
+    lsDropdown.style.display = opening ? 'flex' : 'none';
+    livescratchButton.setAttribute('aria-expanded', String(opening));
+    if (opening) refreshShareModal();
+};
 
 console.log('listening for share button');
 livescratchButton = null;
@@ -2860,6 +3000,7 @@ function addButtonInjectors() {
             let container = document.createElement('livescratchContainer');
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
+            container.style.position = 'relative';
 
             if(!doIOwnThis()) {return;} // if 
             let button = makeLivescratchButton(shareButton);
@@ -2867,9 +3008,9 @@ function addButtonInjectors() {
             let dropdown = document.createElement('livescratchDropdown');
             dropdown.innerHTML = shareDropdown;
             dropdown.style.position = 'absolute';
-            dropdown.style.top = '40px';
-            dropdown.style.borderRadius = '17px';
-            dropdown.style.boxShadow = '3px 7px 19px 3px rgba(0,0,0,0.48)';
+            dropdown.style.top = '44px';
+            dropdown.style.right = '10px';
+            dropdown.style.zIndex = '1000';
             dropdown.style.display = 'none';
             lsDropdown = dropdown;
 
@@ -2882,7 +3023,12 @@ function addButtonInjectors() {
                     return lsActivateClick();
                 }
             };
-            document.addEventListener('click', (e)=>{if(e.target.nodeName != 'X' &&!dropdown.contains(e.target) && !button.contains(e.target)){dropdown.style.display = 'none';}});
+            document.addEventListener('click', (e)=>{
+                if(!dropdown.contains(e.target) && !button.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                    button.setAttribute('aria-expanded', 'false');
+                }
+            });
 
             container.appendChild(button);
             container.appendChild(dropdown);
@@ -2975,7 +3121,7 @@ function addRevertButton() {
 
 
 function revertProject() {
-    let conf = window.confirm('Livescratch Revert:\nThis will delete recent livescratch edits and reset the project to the version that was saved in your mystuff before you opened it. \n - Use this if you think livescratch broke your project\n - You\'ll still have to click \'Save Now\' to finalize the revert.\n\nClick OK to revert\nClick Cancel to cancel');
+    let conf = window.confirm('LiveScratch Revert:\nThis will delete recent LiveScratch edits and reset the project to the version saved in My Stuff before you opened it.\n\nUse this if LiveScratch damaged the project. You will still need to click Save Now to finalize the revert.\n\nClick OK to revert or Cancel to keep the current version.');
     if(!conf) {return;}
 
     vm.loadProject(revertJSON);
@@ -3083,6 +3229,7 @@ async function displayActive(users) {
 lsCursors=null;
 function reloadOnlineUsers() {
     chrome.runtime.sendMessage(exId,{meta:'getActive',id:lsId},(res)=>{
+        if (Array.isArray(res)) updateCollaboratorSummary(res);
         if(JSON.stringify(lsCursors)==JSON.stringify(res)) {return;}
         lsCursors = res;
         clearActive();
@@ -3100,8 +3247,6 @@ setTimeout(reloadOnlineUsers,500);
 
 
 //////////////////// LOADING OVERLAY ////////////////////
-
-const logoUrl = document.querySelector('.livescratch-ext-2').dataset.logoUrl;
 
 const overlayHTML = `
 <loading-content>
@@ -3472,7 +3617,30 @@ ls-chat.popout{
 ls-chat:not(.popout){
     width: auto !important;
     height: auto !important;
-}`;
+}
+
+/* LiveScratch chat refresh */
+ls-chat { border-radius: 14px; min-width: 270px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#d7e2dd'}; box-shadow: 0 10px 30px rgba(26,56,44,.12); }
+ls-chat-head { min-height: 54px; height: 54px; padding: 8px 10px; border-radius: 13px 13px 10px 10px; background: linear-gradient(115deg,#3fa879,#4b9fea); box-shadow: none; }
+ls-chat-head #logo { width: 34px; height: 34px !important; padding: 3px; margin-right: 8px !important; border-radius: 9px; background: rgba(255,255,255,.92); object-fit: contain; }
+ls-chat-head-text { display: flex; flex-direction: column; font-size: 16px; line-height: 18px; }
+ls-chat-head-button { width: 30px; height: 30px; padding: 6px; border-radius: 9px; background: rgba(20,73,53,.25) !important; }
+ls-chat-head-button:hover { scale: 1; background: rgba(20,73,53,.42) !important; }
+ls-chat-msgs { gap: 7px; padding: 14px 12px; font-family: "Helvetica Neue",Helvetica,Arial,sans-serif; font-size: 14px; line-height: 18px; scrollbar-width: thin; }
+ls-msg-space { height: 2px; }
+ls-msg-sender { gap: 7px; margin: 7px 0 0; }
+ls-msg-sender.mymsg { flex-direction: row-reverse; }
+ls-msg-sender-img { width: 28px; height: 28px; border-radius: 9px; background-size: cover; background-position: center; }
+ls-msg-sender-name { color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#607069'}; font-size: 12px; font-style: normal; font-weight: 700; }
+ls-msg { max-width: 82%; margin: 0; padding: 8px 10px; border: 0; border-radius: 12px 12px 12px 4px; color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#21332b'}; background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#eef4f1'}; font-size: 14px; line-height: 18px; box-shadow: none; }
+ls-msg.mymsg { border-radius: 12px 12px 4px 12px; color: #fff; background: linear-gradient(135deg,#3fa879,#438fd0); }
+ls-chat-send { min-height: 46px; margin: 8px 10px 10px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#cad8d2'}; border-radius: 11px; box-shadow: 0 3px 12px rgba(32,62,50,.08); background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#fff'}; }
+ls-chat-input { min-width: 0; min-height: 44px; padding: 11px 12px; font-size: 14px; line-height: 20px; background: transparent; }
+ls-chat-input:empty::before { content: attr(data-placeholder); color: #86938d; pointer-events: none; }
+ls-chat-send-button { width: 44px; min-height: 44px; border: 0; border-radius: 0 10px 10px 0; background: linear-gradient(135deg,#3fa879,#4b9fea); cursor: pointer; }
+ls-chat-send-button:hover { scale: 1; filter: brightness(1.08); }
+ls-chat.popout { min-width: 300px; min-height: 320px; border-radius: 14px; box-shadow: 0 18px 50px rgba(22,45,36,.28); }
+`;
 
 function injectChatCSS() {
     try{
@@ -3575,7 +3743,7 @@ function setChatUnread(num) {
 let ChatHTML = `
 <ls-chat-head id="ls-chat-banner">
     <img id="logo" src="${logoUrl}" style="height: 25px; margin-right: 5px;">
-    <ls-chat-head-text>Livescratch Chat</ls-chat-head-text>
+    <ls-chat-head-text>LiveScratch Chat</ls-chat-head-text>
     <ls-chat-head-filler></ls-chat-head-filler>
     <ls-chat-head-button id="popout" style="background-color: #4f947a;">
         <img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2224px%22%20viewBox%3D%220%20-960%20960%20960%22%20width%3D%2224px%22%20fill%3D%22%23FFFFFF%22%3E%3Cpath%20d%3D%22M80.09-80.09v-799.82h412.13v122.95H203.04v553.92h553.92v-289.18h122.95v412.13H80.09Zm323.56-238.26-85.3-85.3%20353.3-353.31h-99.43v-122.95h307.69v307.69H756.96v-99.43l-353.31%20353.3Z%22%2F%3E%3C%2Fsvg%3E" style="height: 100%;">
@@ -3588,7 +3756,7 @@ let ChatHTML = `
     <ls-msg-space></ls-msg-space>
 </ls-chat-msgs>
 <ls-chat-send>
-    <ls-chat-input contenteditable="true"></ls-chat-input>
+    <ls-chat-input contenteditable="true" role="textbox" aria-label="Chat message" data-placeholder="Write a message..."></ls-chat-input>
     <ls-chat-send-button><img src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' height='24px' viewBox='0 -960 960 960' width='24px' fill='%23FFFFFF'%3E%3Cpath d='M176-183q-20 8-38-3.5T120-220v-180l320-80-320-80v-180q0-22 18-33.5t38-3.5l616 260q25 11 25 37t-25 37L176-183Z'/%3E%3C/svg%3E" style="height: auto; flex-grow: 0;"></ls-chat-send-button>
 </ls-chat-send>`;
 
@@ -3762,6 +3930,7 @@ function togglePopout(state) {
         chatDrag();
     }
     popoutBtn.onclick = () => togglePopout(!state);
+    refreshScratchLayout();
 }
 
 function rmChatDrag() {
@@ -3825,10 +3994,28 @@ function toggleChat(state) {
         // chatbox.style.scale = chatbox.style.transformOrigin='center'
     }
     if(isChatOpen()) {setChatUnread(0);}
+    refreshScratchLayout();
 }
 function isChatOpen() {
-    let chatbox = document.querySelector('ls-chat');
-    return chatbox.style.display = chatbox.style.display!=='none';
+    const chatbox = document.querySelector('ls-chat');
+    return !!chatbox && getComputedStyle(chatbox).display !== 'none';
+}
+
+function refreshScratchLayout() {
+    const resize = () => {
+        window.dispatchEvent(new Event('resize'));
+        try {
+            const workspace = typeof BL_UTILS !== 'undefined' ? BL_UTILS.getWorkspace?.() : null;
+            if (workspace && typeof Blockly !== 'undefined' && typeof Blockly.svgResize === 'function') Blockly.svgResize(workspace);
+        } catch (error) {
+            console.debug('LiveScratch workspace resize deferred:', error);
+        }
+    };
+    requestAnimationFrame(() => {
+        resize();
+        requestAnimationFrame(resize);
+    });
+    setTimeout(resize, 160);
 }
 
 

@@ -37,10 +37,21 @@ document.getElementById('switch-theme')?.addEventListener('click', function(){
 
 let settingsDropdown = false;
 document.getElementById('settings').style.display = settingsDropdown ? 'flex' : 'none';
-document.getElementById('settings-dropdown')?.addEventListener('click', function() {
+const settingsToggle = document.getElementById('settings-dropdown');
+function toggleSettings() {
     settingsDropdown = !settingsDropdown;
-    console.log(settingsDropdown);
     document.getElementById('settings').style.display = settingsDropdown ? 'flex' : 'none';
+    settingsToggle.setAttribute('aria-expanded', String(settingsDropdown));
+    if (settingsDropdown) {
+        requestAnimationFrame(() => settingsToggle.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+}
+settingsToggle?.addEventListener('click', toggleSettings);
+settingsToggle?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleSettings();
+    }
 });
 
 document.querySelector('button#projects')?.addEventListener('click', function () {
@@ -78,14 +89,19 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
 
     logoutButton?.addEventListener('click', async () => {
         const status = document.querySelector('#logout-status');
+        const authPrompt = document.querySelector('#not-verified');
         logoutButton.disabled = true;
-        logoutButton.textContent = 'Logging out…';
+        logoutButton.textContent = 'Logging out...';
         status.textContent = '';
+        authAccount.hidden = true;
+        authPrompt.style.display = 'inherit';
         try {
             const result = await chrome.runtime.sendMessage({ meta: 'logoutScratchAuth' });
-            if (!result?.success) throw new Error('Could not log out.');
+            if (!result?.success) throw new Error(result?.error || 'Could not log out.');
             location.reload();
         } catch (error) {
+            authPrompt.style.display = 'none';
+            authAccount.hidden = false;
             status.textContent = error.message || 'Could not log out.';
             logoutButton.disabled = false;
             logoutButton.textContent = 'Log out';
@@ -255,6 +271,9 @@ document.querySelector('#scratch-auth-login')?.addEventListener('click', async (
     }
 });
 
+document.getElementById('link-github').onclick = () => {
+    chrome.tabs.create({ url: 'https://github.com/Waakul/LiveScratch' });
+};
 document.getElementById('link-uptime').onclick = () => {
     chrome.tabs.create({ url: 'https://status.uptime-monitor.io/67497373f98a6334aaea672d' });
 };

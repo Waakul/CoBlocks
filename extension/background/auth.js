@@ -56,15 +56,20 @@ async function logoutLivescratch({ waitForServer = true } = {}) {
     loginInFlight = false;
     loginTabId = null;
     loginState = null;
-    LIVESCRATCH.onLoggedOut?.();
+    try {
+        LIVESCRATCH.onLoggedOut?.();
+    } catch (error) {
+        console.warn('Could not leave the active LiveScratch session during logout:', error);
+    }
 
     if (username && username !== '*' && token) {
         const serverLogout = fetch(`${apiUrl}/auth/logout`, {
-                method: 'POST',
-                headers: { authorization: token, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username }),
-                signal: AbortSignal.timeout(5000),
-            }).catch(error => console.warn('Server logout failed; the local login was cleared:', error));
+            method: 'POST',
+            headers: { authorization: token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username }),
+            signal: AbortSignal.timeout(5000),
+            keepalive: true,
+        }).catch(error => console.warn('Server logout failed; the local login was cleared:', error));
         if (waitForServer) await serverLogout;
     }
     return { success: true };
@@ -160,7 +165,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
     if (request.meta === 'logoutScratchAuth') {
-        logoutLivescratch().then(sendResponse);
+        logoutLivescratch({ waitForServer: false })
+            .then(sendResponse)
+            .catch(error => {
+                console.error('Could not log out:', error);
+                sendResponse({ success: false, error: error.message });
+            });
         return true;
     }
 });
