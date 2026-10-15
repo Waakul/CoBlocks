@@ -124,6 +124,22 @@ let projectReplaceInitiated = false;
 let onceProjectLoaded = [];
 let vm;
 let readyToRecieveChanges = false;
+let localRecoveryTimer;
+
+function cacheCurrentProjectLocally() {
+    if (!lsId || !vm || livescratchDeleted) return;
+    try {
+        chrome.runtime.sendMessage(exId, { meta:'cacheProjectLocally', lsId, scratchId, json:vm.toJSON(), version:lsVersion });
+    } catch (error) { console.error('Could not prepare local CoBlocks recovery snapshot:', error); }
+}
+
+function startLocalRecoverySnapshots() {
+    if (localRecoveryTimer) return;
+    localRecoveryTimer = setInterval(cacheCurrentProjectLocally, 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') cacheCurrentProjectLocally();
+    });
+}
 
 let reloadAfterRestart=false;
 async function startLivescratch(creatingNew) {
@@ -169,11 +185,13 @@ async function onTabLoad() {
         reactLoopInst = reactLoopInst.child;
     }
     vm = reactLoopInst.memoizedProps.vm;
+    startLocalRecoverySnapshots();
     reactLoopInst = reactInst;
     while (reactLoopInst && (!reactLoopInst.dependencies || !reactLoopInst.dependencies.firstContext.memoizedValue.store)) {
         reactLoopInst = reactLoopInst.child;
     }
     store = reactLoopInst.dependencies.firstContext.memoizedValue.store;
+    injectLivescratchStyles();
     addButtonInjectors();
     lsId = isNaN(parseFloat(location.pathname.split('/')[2])) ? '' : await getLivescratchId(scratchId); //todo: should this use the result of the getLsId function, or a more specific endpoint to authenticating project joining?
     if(!lsId) {
@@ -194,29 +212,44 @@ async function joinExistingLivescratch(id) {
     console.log('joining livescratch id',id);
     startBLLoadingAnimation();
     // let inpoint = await getInpoint(id)
-    let inpoint = await getJson(id);
+    let inpoint = await getJson(id, scratchId);
 
-    let projectJson = inpoint.json;
-    if(inpoint.err) {
-        alert('issue joining livescratch id: ' + id + '\n error: ' + inpoint.err);
+    if(!inpoint || inpoint.err || inpoint.noauth) {
+        alert('Could not join CoBlocks project ' + id + '.\n\nError: ' + (inpoint?.err || 'The project could not be authenticated.'));
         finishBLLoadingAnimation();
         pauseEventHandling = false;
         vm.refreshWorkspace();
         removeLivescratchButtons();
         return;
     }
+    let projectJson = inpoint.json;
     pauseEventHandling = true;
+    const originalProjectJson = vm.toJSON();
     try {
     // console.log('downloading scratch id',inpoint.scratchId)
         console.log('loading scratch project inpoint',inpoint);
-        revertJSON = vm.toJSON();
+        revertJSON = originalProjectJson;
         await vm.loadProject(projectJson);
-        lsVersion = inpoint.version;
+        lsVersion = Number.isFinite(Number(inpoint.version)) ? Number(inpoint.version) : 0;
     } catch (e) {
         finishBLLoadingAnimation();
-        prompt(`Scratch couldn't load the project JSON we had saved for this project. Clicking OK or EXIT will attempt to load the project from the changelog, which may take a moment. \nError: \n${e} \n\nSend this livescratch id to @Waakul on scratch:`,`${lsId};`);
-        startBLLoadingAnimation();
-        // prompt(`Livescratch cannot load project data! The scratch api might be blocked by your network. Clicking OK or EXIT will attempt to load the project from the changelog, which may take a moment. \n\nHere are your ids if you want to report this to @ilhp10:`,`LIVESCRATCH_ID: ${lsId}; SCRATCH_REAL_ID: ${scratchId}; INPOINT_ID: ${inpoint.scratchId}`)
+        try { await vm.loadProject(originalProjectJson); } catch (restoreError) { console.error('Could not restore the editor after a failed recovery load:', restoreError); }
+        alert(`CoBlocks refused a damaged project snapshot and restored the project that was already open.\n\nError: ${e}`);
+        pauseEventHandling = false;
+        readyToRecieveChanges = false;
+        removeLivescratchButtons();
+        vm.refreshWorkspace();
+        return;
+    }
+
+    if (inpoint.recoveredLocally) {
+        finishBLLoadingAnimation();
+        pauseEventHandling = false;
+        readyToRecieveChanges = false;
+        alert('CoBlocks recovered this project from the local browser backup. The server copy is unavailable, so live collaboration is paused. Save the Scratch project now to keep this recovered copy.');
+        removeLivescratchButtons();
+        vm.refreshWorkspace();
+        return;
     }
 
     console.log('syncing new changes, editingTarget: ',vm.editingTarget);
@@ -232,7 +265,7 @@ async function joinExistingLivescratch(id) {
 }
 
 function unshareLivescratch() {
-    if (!confirm('Unlink this Scratch project from LiveScratch? Collaborators will lose access to this copy.')) return;
+    if (!confirm('Unlink this Scratch project from CoBlocks? Collaborators will lose access to this copy.')) return;
     chrome.runtime.sendMessage(exId,{meta:'leaveScratchId',scratchId});
     removeLivescratchButtons();
     livescratchDeleted=true;
@@ -247,12 +280,14 @@ function removeLivescratchButtons() {
         document.querySelector('#noRefreshPanel')?.remove();
         document.querySelector('#lsUsersPanel')?.remove();
         document.querySelector('#ls-chat')?.remove();
+        document.querySelector('#lsNativeBackpack')?.remove();
+        resizeEditorForBackpack();
 
         lsDropdown.style.display = 'none';
         livescratchButton.onclick = lsActivateClick;
-        lsId=null;
 
     } catch(e) {console.error(e);}
+    lsId=null;
 }
 
 function getLivescratchId(scratchId) {
@@ -263,8 +298,8 @@ function getLivescratchId(scratchId) {
 // function getInpoint(livescratchId) {
 //     return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getInpoint',lsId:livescratchId},res)})
 // }
-function getJson(livescratchId) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getJson',lsId:livescratchId},res);});
+function getJson(livescratchId, currentScratchId) {
+    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getJson',lsId:livescratchId,scratchId:currentScratchId},res);});
 }
 function getChanges(lsId,version) {
     return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getChanges',lsId,version},res);});
@@ -290,6 +325,7 @@ let getAndPlayNewChanges;
 async function activateLivescratch() {
 
     addChat(); 
+    mountSharedBackpack().catch(error => console.error('Could not mount the CoBlocks backpack:', error));
 
     playChanges = async (changes)=>{
         console.log('syncing new changes:',changes);
@@ -395,6 +431,8 @@ async function activateLivescratch() {
                 lsVersion++;
             } else if(msg.meta == 'chat') {
                 addMessage(msg.msg,true);
+            } else if(msg.meta == 'backpack.updated') {
+                if (document.querySelector('#lsNativeBackpack')) refreshSharedBackpack();
             }
         } catch (e) {console.error(e);}
     };
@@ -536,7 +574,7 @@ async function activateLivescratch() {
             console.log('state '+state);
             if(state.endsWith('UPDATING')) {
                 console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
-                chrome.runtime.sendMessage(exId,{meta:'projectSavedJSON',lsId,json:vm.toJSON(),version:lsVersion});
+                chrome.runtime.sendMessage(exId,{meta:'projectSavedJSON',lsId,scratchId,json:vm.toJSON(),version:lsVersion});
             // chrome.runtime.sendMessage(exId,{meta:'projectSaved',lsId,scratchId,version:lsVersion})
             }
             try{
@@ -2179,7 +2217,7 @@ function outlineBlock(blockId, username) {
     let blockElem = block.getSvgRoot();
 
     const blockResetDef = setBlockStyles(blockId,blockElem,
-        {'outline':'solid 8px #5fd2a5'}, username,
+        {'outline':'solid 8px #ffc83d'}, username,
     );
     BL_BlockOutlinesUsers[username] = blockResetDef;
     BL_BlockOutlinesBlocks[blockId] = blockResetDef;
@@ -2200,12 +2238,12 @@ function outlineBlock(blockId, username) {
 /////........................ GUI INJECTS .........................//////
 console.log('running gui inject...');
 let shareDropdown = `
-<div class="ls-collab-panel" role="dialog" aria-label="LiveScratch collaboration">
+<div class="ls-collab-panel" role="dialog" aria-label="CoBlocks collaboration">
     <div class="ls-collab-header">
         <div class="ls-collab-brand"><img src="${logoUrl}" alt=""></div>
         <div class="ls-collab-heading">
             <strong>Collaboration</strong>
-            <span>Manage this LiveScratch project</span>
+            <span>Manage this CoBlocks project</span>
         </div>
         <button class="ls-icon-button" type="button" aria-label="Close" onclick="lsDropdown.style.display='none';livescratchButton.setAttribute('aria-expanded','false')">&times;</button>
     </div>
@@ -2298,27 +2336,27 @@ let shareCSS = `
 .ls-collab-panel {
     width: min(320px, calc(100vw - 24px)); min-width: 0; max-width: 320px; max-height: calc(100vh - 72px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
     overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-    color: #18251f; background: #fff; border: 1px solid rgba(34, 72, 57, .14);
+    color: #14264d; background: #fff; border: 1px solid rgba(20, 38, 77, .14);
     border-radius: 16px; box-shadow: 0 18px 46px rgba(22, 43, 35, .24);
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 .ls-collab-panel > * { min-width: 0; max-width: 100%; }
 .ls-collab-header { display: flex; align-items: center; gap: 10px; }
-.ls-collab-brand { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(135deg,#eafaf3,#e8f3ff); }
+.ls-collab-brand { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(135deg,#fff5d4,#e8eef9); }
 .ls-collab-brand img { width: 32px; height: 32px; object-fit: contain; }
 .ls-collab-heading { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .ls-collab-heading strong { font-size: 17px; line-height: 20px; }
 .ls-collab-heading span, .ls-section-heading span, .ls-add-label span { color: #66736d; font-size: 12px; line-height: 16px; }
 .ls-icon-button, .ls-text-button, .ls-remove-collaborator, .ls-secondary-button, .ls-danger-button, .ls-member-name, .ls-search-result { font: inherit; }
-.ls-icon-button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #f0f5f3; color: #405049; font-size: 22px; cursor: pointer; }
-.ls-icon-button:hover { background: #e3ece8; }
+.ls-icon-button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #f2f5fa; color: #32415f; font-size: 22px; cursor: pointer; }
+.ls-icon-button:hover { background: #e8edf6; }
 .ls-collab-stats { display: flex; gap: 8px; }
-.ls-collab-stats > span { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; background: #f0f8f5; color: #486158; font-size: 12px; }
+.ls-collab-stats > span { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; background: #f3f6fb; color: #354665; font-size: 12px; }
 .ls-online-dot, .ls-member-presence { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #20b86a; box-shadow: 0 0 0 2px #fff; }
 .ls-section-heading { display: flex; align-items: end; justify-content: space-between; }
 .ls-section-heading > div, .ls-add-label { display: flex; flex-direction: column; }
 .ls-section-heading strong, .ls-add-label strong { font-size: 14px; }
-.ls-text-button { border: 0; padding: 4px; background: transparent; color: #357b62; font-weight: 700; cursor: pointer; }
+.ls-text-button { border: 0; padding: 4px; background: transparent; color: #14264d; font-weight: 700; cursor: pointer; }
 .ls-text-button:hover { text-decoration: underline; }
 .ls-shared-list { max-height: 188px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 0 -4px; padding: 0 4px; }
 .ls-collab-member { min-height: 48px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto 28px; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 10px; }
@@ -2328,7 +2366,7 @@ let shareCSS = `
 .ls-member-presence { display: none; position: absolute; right: 0; bottom: 0; }
 .ls-collab-member.is-online .ls-member-presence { display: block; }
 .ls-member-name { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: #23342d; font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.ls-member-name:hover { color: #28775a; text-decoration: underline; }
+.ls-member-name:hover { color: #14264d; text-decoration: underline; }
 .ls-member-role { padding: 3px 7px; border-radius: 999px; background: #edf3f0; color: #68756f; font-size: 10px; font-weight: 700; }
 .ls-collab-member.is-owner .ls-member-role { background: #fff1c7; color: #795c0a; }
 .ls-remove-collaborator { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #9b5555; font-size: 20px; cursor: pointer; }
@@ -2337,22 +2375,47 @@ let shareCSS = `
 .ls-divider { height: 1px; background: #e5ece9; }
 .ls-search-wrap { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
 #searchy { display: block !important; box-sizing: border-box !important; inline-size: 100% !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-inline-size: 100% !important; height: 40px !important; margin: 0 !important; padding: 0 40px 0 12px !important; border: 1px solid #c7d3ce !important; border-radius: 10px !important; outline: 0; color: #1f2d27; background: #fff; font: inherit; }
-#searchy:focus { border-color: #42a77e; box-shadow: 0 0 0 3px rgba(66,167,126,.16); }
-.ls-mini-spinner { position: absolute; right: 13px; top: 12px; width: 16px; height: 16px; border: 2px solid #cbe2d8; border-top-color: #31956d; border-radius: 50%; animation: spin .7s linear infinite; }
+#searchy:focus { border-color: #e7a91b; box-shadow: 0 0 0 3px rgba(255,200,61,.16); }
+.ls-mini-spinner { position: absolute; right: 13px; top: 12px; width: 16px; height: 16px; border: 2px solid #cbe2d8; border-top-color: #14264d; border-radius: 50%; animation: spin .7s linear infinite; }
 .ls-search-result { width: 100%; display: grid; grid-template-columns: 38px 1fr 28px; align-items: center; gap: 10px; padding: 7px; border: 1px solid #dce7e2; border-radius: 11px; color: #203129; background: #f7fbf9; cursor: pointer; text-align: left; }
 .ls-search-result:hover { border-color: #8fcab2; background: #edf8f3; }
 .ls-search-result[hidden] { display: none; }
 .ls-result-copy { min-width: 0; display: flex; flex-direction: column; }
 .ls-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ls-result-copy small { color: #687970; }
-.ls-result-add { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; background: #3ca77c; font-size: 20px; }
+.ls-result-add { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; background: #e7a91b; font-size: 20px; }
 .ls-share-status { min-height: 16px; color: #587067; font-size: 12px; }
 .ls-share-status.is-error { color: #b43b3b; }
-.ls-share-status.is-success { color: #24815e; }
+.ls-share-status.is-success { color: #14264d; }
+.ls-native-backpack { box-sizing: border-box; flex: 0 0 auto; width: 100%; height: 46px; overflow: hidden; border-top: 1px solid #d9e3f2; background: #fff; color: #334; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; transition: height .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.ls-native-backpack.is-expanded { height: 210px; box-shadow: 0 -5px 15px rgba(35,55,85,.09); }
+.ls-native-backpack.is-drop-target { border-color: #ffc83d; background: #fff9e9; box-shadow: inset 0 0 0 3px rgba(255,200,61,.28); }
+.ls-native-backpack-header { box-sizing: border-box; width: 100%; height: 45px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border: 0; color: #4c4c4c; background: #fff; font: inherit; font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
+.ls-native-backpack-header:hover { background: #f7f9fc; }
+.ls-native-backpack-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: linear-gradient(145deg,#ffc83d,#14264d); color: #fff; font-size: 14px; }
+.ls-native-backpack-title { flex: 1; }
+.ls-native-backpack-count { color: #777; font-size: 11px; font-weight: 500; }
+.ls-native-backpack-chevron { color: #777; font-size: 18px; transform: rotate(-90deg); transition: transform .18s ease; }
+.ls-native-backpack.is-expanded .ls-native-backpack-chevron { transform: rotate(90deg); }
+.ls-native-backpack-body { box-sizing: border-box; height: 164px; display: flex; flex-direction: column; padding: 8px 12px 10px; border-top: 1px solid #edf0f5; }
+.ls-native-backpack-list { min-width: 0; flex: 1; display: flex; align-items: stretch; gap: 9px; overflow-x: auto; overflow-y: hidden; padding: 1px 1px 5px; }
+.ls-native-backpack-empty { width: 100%; display: grid; place-items: center; border: 2px dashed #cdd8e8; border-radius: 8px; color: #718096; font-size: 12px; text-align: center; }
+.ls-native-backpack-item { position: relative; box-sizing: border-box; flex: 0 0 152px; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 10px; border: 1px solid #dce3ed; border-radius: 8px; background: #fff; cursor: grab; box-shadow: 0 1px 3px rgba(40,55,80,.08); }
+.ls-native-backpack-item:hover { border-color: #75bfe9; box-shadow: 0 2px 7px rgba(40,95,130,.15); }
+.ls-native-backpack-item:active { cursor: grabbing; }
+.ls-native-backpack-preview { width: 100%; height: 62px; object-fit: contain; object-position: left center; pointer-events: none; }
+.ls-native-backpack-item-title { overflow: hidden; color: #4c4c4c; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.ls-native-backpack-item-meta { overflow: hidden; color: #7b8491; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.ls-native-backpack-item-actions { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+.ls-native-backpack-use, .ls-native-backpack-delete, .ls-native-backpack-refresh { border: 0; background: transparent; color: #14264d; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
+.ls-native-backpack-delete { color: #b54a4a; }
+.ls-native-backpack-status { min-height: 15px; color: #647487; font-size: 11px; }
+.ls-native-backpack-status.is-error { color: #b43b3b; }
+.ls-native-backpack-status.is-success { color: #14264d; }
 .ls-collab-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ls-secondary-button, .ls-danger-button { min-width: 0; min-height: 36px; padding: 7px 10px; border-radius: 9px; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.ls-secondary-button { border: 1px solid #b9ccc4; color: #315d4c; background: #fff; }
-.ls-secondary-button:hover { background: #eef7f3; }
+.ls-secondary-button { border: 1px solid #b8c4da; color: #14264d; background: #fff; }
+.ls-secondary-button:hover { background: #eef3fc; }
 .ls-danger-button { border: 1px solid #efc5c5; color: #a33939; background: #fff7f7; }
 .ls-danger-button:hover { background: #ffecec; }
 #lsShare { transition: transform .16s ease, filter .16s ease, box-shadow .16s ease; }
@@ -2368,7 +2431,7 @@ let shareCSS = `
     .ls-member-role { display: none; }
 }
 .livescratchloader {
-    border: 3px solid #5fd2a5;
+    border: 3px solid #ffc83d;
     border-top: 3px solid white;
     border-bottom: 3px solid white;
     border-radius: 50%;
@@ -2619,7 +2682,7 @@ async function getUserInfo(username) {
 async function getWithPic(user, username = null) {
     if (username !== null && username === 'livescratch') {
         const url = await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage(exId, { meta: 'getUrl', for: '/img/LogoLiveScratch.svg' }, (url) => {
+            chrome.runtime.sendMessage(exId, { meta: 'getUrl', for: '/img/CoBlocksIcon.png' }, (url) => {
                 if (chrome.runtime.lastError) {
                     reject(chrome.runtime.lastError);
                 } else {
@@ -2691,7 +2754,7 @@ async function addCollaborator(username) {
             setShareStatus(`@${user.username} can now collaborate.`, 'success');
             creditCollabers([...Object.keys(lsShareMembers)]);
         } else {
-            setShareStatus(response?.error || 'This user must sign in to LiveScratch first.', 'error');
+            setShareStatus(response?.error || 'This user must sign in to CoBlocks first.', 'error');
         }
     });
 }
@@ -2715,6 +2778,352 @@ function setShareStatus(message, type = '') {
     if (!status) return;
     status.textContent = message;
     status.className = `ls-share-status${type ? ` is-${type}` : ''}`;
+}
+
+let lsBackpackItems = [];
+let lsBackpackOwner = '';
+let lsBackpackUsername = '';
+let lsBackpackBlockDragOutside = false;
+let lsBackpackBlockDragOver = false;
+let lsBackpackListenersInstalled = false;
+let lsBackpackPointer = null;
+
+function setBackpackStatus(message, type = '') {
+    const status = document.querySelector('#lsNativeBackpackStatus');
+    if (!status) return;
+    status.textContent = message;
+    status.className = `ls-native-backpack-status${type ? ` is-${type}` : ''}`;
+}
+
+function requestFromBackground(message, timeoutMs = 15000) {
+    return new Promise(resolve => {
+        let finished = false;
+        const finish = response => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timeout);
+            resolve(response);
+        };
+        const timeout = setTimeout(() => finish({ ok: false, error: 'The CoBlocks server did not respond. Try again.' }), timeoutMs);
+        chrome.runtime.sendMessage(exId, message, response => {
+            if (chrome.runtime.lastError) {
+                finish({ ok: false, error: 'CoBlocks could not contact the extension. Reload the editor and try again.' });
+                return;
+            }
+            finish(response);
+        });
+    });
+}
+
+function pointerIsOverBackpack() {
+    const backpack = document.querySelector('#lsNativeBackpack');
+    if (!backpack || !lsBackpackPointer) return false;
+    const rect = backpack.getBoundingClientRect();
+    return lsBackpackPointer.x >= rect.left && lsBackpackPointer.x <= rect.right &&
+        lsBackpackPointer.y >= rect.top && lsBackpackPointer.y <= rect.bottom;
+}
+
+function updateBackpackDropTarget() {
+    const backpack = document.querySelector('#lsNativeBackpack');
+    if (!backpack) return;
+    lsBackpackBlockDragOver = pointerIsOverBackpack();
+    backpack.classList.toggle('is-drop-target', lsBackpackBlockDragOutside && lsBackpackBlockDragOver);
+}
+
+function rememberBackpackPointer(event) {
+    const point = event.touches?.[0] || event.changedTouches?.[0] || event;
+    if (!Number.isFinite(point?.clientX) || !Number.isFinite(point?.clientY)) return;
+    lsBackpackPointer = { x: point.clientX, y: point.clientY };
+    if (lsBackpackBlockDragOutside) updateBackpackDropTarget();
+}
+
+function resizeEditorForBackpack() {
+    const resize = () => {
+        window.dispatchEvent(new Event('resize'));
+        try {
+            const workspace = typeof BL_UTILS !== 'undefined' ? BL_UTILS.getWorkspace?.() : null;
+            workspace?.resize?.();
+            if (typeof ScratchBlocks !== 'undefined') ScratchBlocks.svgResize?.(workspace);
+        } catch (error) { console.error('Could not resize the Scratch workspace:', error); }
+    };
+    resize();
+    setTimeout(resize, 200);
+    setTimeout(resize, 420);
+}
+
+async function toggleSharedBackpack() {
+    const backpack = document.querySelector('#lsNativeBackpack');
+    if (!backpack) return;
+    const expanded = !backpack.classList.contains('is-expanded');
+    backpack.classList.toggle('is-expanded', expanded);
+    backpack.querySelector('.ls-native-backpack-header')?.setAttribute('aria-expanded', String(expanded));
+    resizeEditorForBackpack();
+    if (expanded) await refreshSharedBackpack();
+}
+
+function backpackScriptName(blocks, topBlockId) {
+    try {
+        const workspace = typeof BL_UTILS !== 'undefined' ? BL_UTILS.getWorkspace?.() : null;
+        const displayText = workspace?.getBlockById?.(topBlockId)?.toString?.(48)?.trim();
+        if (displayText) return displayText.slice(0, 80);
+    } catch { /* fall back to the VM opcode */ }
+    const top = blocks.find(block => block.topLevel) || blocks[0];
+    const opcode = String(top?.opcode || 'script').replace(/^[^_]+_/, '').replaceAll('_', ' ');
+    return opcode.charAt(0).toUpperCase() + opcode.slice(1);
+}
+
+function renderSharedBackpack() {
+    const list = document.querySelector('#lsNativeBackpackList');
+    const count = document.querySelector('#lsNativeBackpackCount');
+    if (!list || !count) return;
+    count.textContent = `${lsBackpackItems.length} ${lsBackpackItems.length === 1 ? 'item' : 'items'}`;
+    list.replaceChildren();
+    if (!lsBackpackItems.length) {
+        const empty = document.createElement('div');
+        empty.className = 'ls-native-backpack-empty';
+        empty.textContent = 'Drag a block stack here to share it with this project’s collaborators.';
+        list.appendChild(empty);
+        return;
+    }
+    for (const item of lsBackpackItems) {
+        const row = document.createElement('div');
+        row.className = 'ls-native-backpack-item';
+        row.draggable = true;
+        row.title = 'Drag into the code area or double-click to add to the current sprite';
+        const name = document.createElement('strong');
+        name.className = 'ls-native-backpack-item-title';
+        name.textContent = item.name;
+        if (item.thumbnail) {
+            const preview = document.createElement('img');
+            preview.className = 'ls-native-backpack-preview';
+            preview.src = item.thumbnail;
+            preview.alt = '';
+            row.appendChild(preview);
+        }
+        const creator = document.createElement('small');
+        creator.className = 'ls-native-backpack-item-meta';
+        creator.textContent = `Shared by @${item.createdBy}`;
+        const buttons = document.createElement('div');
+        buttons.className = 'ls-native-backpack-item-actions';
+        const useButton = document.createElement('button');
+        useButton.className = 'ls-native-backpack-use';
+        useButton.type = 'button';
+        useButton.textContent = 'Add to sprite';
+        useButton.onclick = () => insertBackpackScript(item.id);
+        buttons.appendChild(useButton);
+        const canDelete = String(item.createdBy).toLowerCase() === lsBackpackUsername || lsBackpackUsername === lsBackpackOwner;
+        if (canDelete) {
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'ls-native-backpack-delete';
+            deleteButton.type = 'button';
+            deleteButton.textContent = 'Remove';
+            deleteButton.onclick = () => removeBackpackScript(item.id);
+            buttons.appendChild(deleteButton);
+        }
+        row.ondblclick = event => {
+            if (!event.target.closest('button')) insertBackpackScript(item.id);
+        };
+        row.ondragstart = event => {
+            event.dataTransfer.effectAllowed = 'copy';
+            event.dataTransfer.setData('application/x-livescratch-backpack', item.id);
+            event.dataTransfer.setData('text/plain', item.name);
+        };
+        row.ondragend = event => {
+            const target = document.elementFromPoint(event.clientX, event.clientY);
+            if (target?.closest?.('.blocklySvg, [class*="blocks_blocks"]')) insertBackpackScript(item.id);
+        };
+        row.append(name, creator, buttons);
+        list.appendChild(row);
+    }
+}
+
+async function refreshSharedBackpack(showStatus = false) {
+    if (!lsId) return;
+    if (showStatus) setBackpackStatus('Refreshing…');
+    if (!lsBackpackUsername) {
+        lsBackpackUsername = String(await requestFromBackground({ meta: 'getUsername' }) || '').toLowerCase();
+    }
+    const response = await requestFromBackground({ meta: 'getBackpack', id: lsId });
+    if (!response?.ok || !Array.isArray(response.items)) {
+        setBackpackStatus(response?.error || 'Could not load the shared backpack.', 'error');
+        return;
+    }
+    lsBackpackItems = response.items;
+    renderSharedBackpack();
+    setBackpackStatus(showStatus ? 'Backpack updated.' : '', showStatus ? 'success' : '');
+}
+
+async function saveBlocksToBackpack(blocks, topBlockId) {
+    try {
+        if (!lsId || !Array.isArray(blocks) || !blocks.length) return;
+        const ordered = blocks.map(block => ({...block}));
+        const topIndex = ordered.findIndex(block => block.id === topBlockId);
+        if (topIndex > 0) ordered.unshift(ordered.splice(topIndex, 1)[0]);
+        const name = backpackScriptName(ordered, topBlockId);
+        const thumbnail = await captureBackpackBlockThumbnail(topBlockId);
+        setBackpackStatus('Sharing script…');
+        const response = await requestFromBackground({
+            meta: 'addBackpackItem',
+            id: lsId,
+            name,
+            blocks: ordered,
+            thumbnail,
+        });
+        if (!response?.ok) throw new Error(response?.error || 'Could not share that script.');
+        await refreshSharedBackpack();
+        setBackpackStatus('Script added for your collaborators.', 'success');
+    } catch (error) {
+        setBackpackStatus(error.message || 'Could not share that script.', 'error');
+    }
+}
+
+function captureBackpackBlockThumbnail(topBlockId) {
+    try {
+        const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(String(topBlockId)) : String(topBlockId).replaceAll('"', '\\"');
+        const candidates = [...document.querySelectorAll(`g[data-id="${escapedId}"]`)];
+        const source = candidates.find(element => element.closest('.blocklyBlockCanvas, .blocklyDragSurface'));
+        if (!source) return Promise.resolve(null);
+        const bounds = source.getBBox();
+        if (!bounds.width || !bounds.height) return Promise.resolve(null);
+        const clone = source.cloneNode(true);
+        clone.removeAttribute('transform');
+        const padding = 5;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        svg.setAttribute('viewBox', `${bounds.x - padding} ${bounds.y - padding} ${bounds.width + padding * 2} ${bounds.height + padding * 2}`);
+        svg.appendChild(clone);
+        const markup = new XMLSerializer().serializeToString(svg);
+        const sourceUrl = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
+        return new Promise(resolve => {
+            let finished = false;
+            const finish = value => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timeout);
+                URL.revokeObjectURL(sourceUrl);
+                resolve(value);
+            };
+            const timeout = setTimeout(() => finish(null), 1000);
+            const image = new Image();
+            image.onload = () => {
+                try {
+                    const scale = Math.min(1, 240 / bounds.width, 100 / bounds.height);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.ceil((bounds.width + padding * 2) * scale));
+                    canvas.height = Math.max(1, Math.ceil((bounds.height + padding * 2) * scale));
+                    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+                    finish(canvas.toDataURL('image/png'));
+                } catch { finish(null); }
+            };
+            image.onerror = () => finish(null);
+            image.src = sourceUrl;
+        });
+    } catch {
+        return Promise.resolve(null);
+    }
+}
+
+async function insertBackpackScript(itemId) {
+    try {
+        const item = lsBackpackItems.find(entry => entry.id === itemId);
+        if (!item) throw new Error('That shared script is no longer available.');
+        if (!Array.isArray(item.blocks) || !vm?.editingTarget?.id) throw new Error('This shared script is damaged.');
+        await vm.shareBlocksToTarget(item.blocks, vm.editingTarget.id);
+        vm.refreshWorkspace();
+        setTimeout(() => {
+            if (typeof BL_UTILS !== 'undefined') BL_UTILS.refreshFlyout?.();
+        }, 120);
+        setBackpackStatus(`Added “${item.name}” to the current sprite.`, 'success');
+    } catch (error) {
+        setBackpackStatus(error.message || 'Could not insert that script.', 'error');
+    }
+}
+
+async function removeBackpackScript(itemId) {
+    const item = lsBackpackItems.find(entry => entry.id === itemId);
+    if (!item || !confirm(`Remove “${item.name}” from the shared backpack?`)) return;
+    setBackpackStatus('Removing script...');
+    const response = await requestFromBackground({ meta: 'deleteBackpackItem', id: lsId, itemId });
+    if (!response?.ok) {
+        setBackpackStatus(response?.error || 'Could not remove that script.', 'error');
+        return;
+    }
+    await refreshSharedBackpack();
+    setBackpackStatus('Script removed.', 'success');
+}
+
+function installSharedBackpackListeners() {
+    if (lsBackpackListenersInstalled || !vm?.addListener) return;
+    lsBackpackListenersInstalled = true;
+    document.addEventListener('pointermove', rememberBackpackPointer, { capture: true, passive: true });
+    document.addEventListener('mousemove', rememberBackpackPointer, { capture: true, passive: true });
+    document.addEventListener('touchmove', rememberBackpackPointer, { capture: true, passive: true });
+    vm.addListener('BLOCK_DRAG_UPDATE', isOutsideWorkspace => {
+        lsBackpackBlockDragOutside = !!isOutsideWorkspace;
+        updateBackpackDropTarget();
+    });
+    vm.addListener('BLOCK_DRAG_END', (blocks, topBlockId) => {
+        // Blockly captures the mouse during block drags, so mouseenter can be skipped.
+        // The last document-level pointer position is the reliable drop location.
+        const droppedOnBackpack = pointerIsOverBackpack() || lsBackpackBlockDragOver;
+        if (droppedOnBackpack) saveBlocksToBackpack(blocks, topBlockId);
+        lsBackpackBlockDragOutside = false;
+        lsBackpackBlockDragOver = false;
+        lsBackpackPointer = null;
+        document.querySelector('#lsNativeBackpack')?.classList.remove('is-drop-target');
+    });
+}
+
+async function mountSharedBackpack() {
+    let backpack = document.querySelector('#lsNativeBackpack');
+    installSharedBackpackListeners();
+    if (backpack) {
+        backpack.hidden = false;
+        refreshSharedBackpack();
+        return;
+    }
+    const editorWrapper = await getObj('[class*="gui_editor-wrapper"]');
+    backpack = document.createElement('section');
+    backpack.id = 'lsNativeBackpack';
+    backpack.className = 'ls-native-backpack';
+    backpack.innerHTML = `
+        <div class="ls-native-backpack-header" role="button" tabindex="0" aria-expanded="false">
+            <span class="ls-native-backpack-icon" aria-hidden="true">🎒</span>
+            <span class="ls-native-backpack-title">CoBlocks Backpack</span>
+            <span id="lsNativeBackpackCount" class="ls-native-backpack-count">0 items</span>
+            <button type="button" class="ls-native-backpack-refresh" aria-label="Refresh shared backpack">Refresh</button>
+            <span class="ls-native-backpack-chevron" aria-hidden="true">›</span>
+        </div>
+        <div class="ls-native-backpack-body">
+            <div id="lsNativeBackpackList" class="ls-native-backpack-list"></div>
+            <div id="lsNativeBackpackStatus" class="ls-native-backpack-status" role="status" aria-live="polite"></div>
+        </div>`;
+    const header = backpack.querySelector('.ls-native-backpack-header');
+    header.onclick = event => {
+        if (!event.target.closest('.ls-native-backpack-refresh')) toggleSharedBackpack();
+    };
+    header.onkeydown = event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleSharedBackpack();
+        }
+    };
+    backpack.querySelector('.ls-native-backpack-refresh').onclick = event => {
+        event.stopPropagation();
+        refreshSharedBackpack(true);
+    };
+    backpack.onmouseenter = () => {
+        lsBackpackBlockDragOver = true;
+        backpack.classList.toggle('is-drop-target', lsBackpackBlockDragOutside);
+    };
+    backpack.onmouseleave = () => {
+        lsBackpackBlockDragOver = false;
+        backpack.classList.remove('is-drop-target');
+    };
+    editorWrapper.appendChild(backpack);
+    renderSharedBackpack();
+    refreshSharedBackpack();
+    resizeEditorForBackpack();
 }
 
 function updateCollaboratorSummary(onlineUsers = null) {
@@ -2763,7 +3172,11 @@ function refreshShareModal(showStatus = false) {
         }
         const collaborators = await Promise.all(res.map(user => getWithPic(user)));
         const owner = collaborators.shift();
-        if (owner) await addCollaboratorGUI(owner,true);
+        if (owner) {
+            lsBackpackOwner = owner.username.toLowerCase();
+            await addCollaboratorGUI(owner,true);
+            renderSharedBackpack();
+        }
         for (const collaborator of collaborators) await addCollaboratorGUI(collaborator);
         refreshCollaborationPresence();
         if (showStatus) setShareStatus('Collaborators updated.', 'success');
@@ -2780,16 +3193,16 @@ function makeLivescratchButton(sharebutton) {
     button.style.paddingLeft = '10px';
     button.style.paddingRight = '10px';
     button.style.gap = '6px';
-    button.style.background = 'linear-gradient(115deg, #56c997, #48a9ef)';
-    button.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,.28), 0 2px 8px rgba(22,70,51,.18)';
-    button.style.color = '#fff';
+    button.style.background = 'linear-gradient(120deg, #ffd45c, #ffe89a)';
+    button.style.boxShadow = 'inset 0 0 0 1px rgba(255,255,255,.45), 0 2px 8px rgba(20,38,77,.12)';
+    button.style.color = '#14264d';
     button.style.display = 'flex';
     button.style.flexDirection = 'row';
     button.setAttribute('role', 'button');
     button.setAttribute('tabindex', '0');
-    button.setAttribute('aria-label', 'Open LiveScratch collaboration');
+    button.setAttribute('aria-label', 'Open CoBlocks collaboration');
     button.setAttribute('aria-expanded', 'false');
-    button.title = 'Open LiveScratch collaboration';
+    button.title = 'Open CoBlocks collaboration';
     button.onkeydown = event => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -2804,7 +3217,7 @@ function makeLivescratchButton(sharebutton) {
     let text = document.createElement('text');
     text.style.textAlign = 'center';
     text.style.fontWeight = '700';
-    text.innerHTML = 'LiveScratch';
+    text.innerHTML = 'CoBlocks';
 
     let loader = document.createElement('loader');
     loader.className = 'livescratchloader';
@@ -2828,7 +3241,7 @@ function makeRevertButton(communityButton) {
     button.style.paddingRight = '7px';
     button.style.gap = '7px';
     // button.style.background = ' linear-gradient(90deg, rgba(51,0,54,1) 0%, rgba(255,0,113,1) 60%)'
-    // button.style.background = '#5fd2a5' // livescratch green
+    // button.style.background = '#ffc83d' // livescratch green
     button.style.display = 'flex';
     button.style.flexDirection = 'row';
     button.style.backgroundColor = 'rgb(255 255 255 / 16%)';
@@ -2836,7 +3249,7 @@ function makeRevertButton(communityButton) {
 
     let text = document.createElement('text');
     text.style.textAlign = 'center';
-    text.innerHTML = 'LiveScratch Revert';
+    text.innerHTML = 'CoBlocks Revert';
 
     button.appendChild(text);
     return button;
@@ -2846,18 +3259,28 @@ let yeet = '⚠️';
 
 
 function injectJSandCSS() {
+    if (!document.querySelector('#lsShareInjectedScript')) {
+        let dropdownScriptElem = document.createElement('script');
+        dropdownScriptElem.id = 'lsShareInjectedScript';
+        dropdownScriptElem.innerHTML = shareScript;
+        document.head.appendChild(dropdownScriptElem);
+    }
+    injectLivescratchStyles();
+}
 
-    let dropdownScriptElem = document.createElement('script');
-    dropdownScriptElem.innerHTML = shareScript;
-    document.head.appendChild(dropdownScriptElem);
-
-    let styleInj = document.createElement('style');
-    styleInj.innerHTML = shareCSS;
-    document.head.appendChild(styleInj);
-
-    let styleInj2 = document.createElement('style');
-    styleInj2.innerHTML = spriteDisplayCSS;
-    document.head.appendChild(styleInj2);
+function injectLivescratchStyles() {
+    if (!document.querySelector('#lsShareInjectedStyles')) {
+        let styleInj = document.createElement('style');
+        styleInj.id = 'lsShareInjectedStyles';
+        styleInj.innerHTML = shareCSS;
+        document.head.appendChild(styleInj);
+    }
+    if (!document.querySelector('#lsSpriteInjectedStyles')) {
+        let styleInj2 = document.createElement('style');
+        styleInj2.id = 'lsSpriteInjectedStyles';
+        styleInj2.innerHTML = spriteDisplayCSS;
+        document.head.appendChild(styleInj2);
+    }
 }
 function creditCollabers(usersList) {
     usersList.map(u=>`@${u}`);
@@ -2942,7 +3365,7 @@ let lsActivateClick = async ()=>{
 
     chrome.runtime.sendMessage(exId,{json,meta:'create',scratchId,title:store.getState().preview.projectInfo.title},async (response)=>{
         if(response.noauth || response.err) {
-            showBlStartError(response.noauth ? 'LiveScratch has not verified your account yet.' : response.err);
+            showBlStartError(response.noauth ? 'CoBlocks has not verified your account yet.' : response.err);
             livescratchButton.onclick = lsActivateClick;
             return;
         }
@@ -3121,14 +3544,14 @@ function addRevertButton() {
 
 
 function revertProject() {
-    let conf = window.confirm('LiveScratch Revert:\nThis will delete recent LiveScratch edits and reset the project to the version saved in My Stuff before you opened it.\n\nUse this if LiveScratch damaged the project. You will still need to click Save Now to finalize the revert.\n\nClick OK to revert or Cancel to keep the current version.');
+    let conf = window.confirm('CoBlocks Revert:\nThis will delete recent CoBlocks edits and reset the project to the version saved in My Stuff before you opened it.\n\nUse this if CoBlocks damaged the project. You will still need to click Save Now to finalize the revert.\n\nClick OK to revert or Cancel to keep the current version.');
     if(!conf) {return;}
 
     vm.loadProject(revertJSON);
 }
 
 let COLORS = ['teal','#c42b63', '#58c198'];
-let COLORS_BRIGHT = ['#00b9d1','#ff00e6', '#5fd2a5'];
+let COLORS_BRIGHT = ['#00b9d1','#ff00e6', '#ffc83d'];
 let yo_1 = Math.round(Math.random());
 
 function clearActive() {
@@ -3251,7 +3674,7 @@ setTimeout(reloadOnlineUsers,500);
 const overlayHTML = `
 <loading-content>
 <img src="${logoUrl}" id="ls-load-logo">
-<div class="ls-loading-text">Loading LiveScratch...</div>
+<div class="ls-loading-text">Loading CoBlocks...</div>
 </loading-content>
 </img>`;
 const overlayCSS = `
@@ -3280,7 +3703,7 @@ livescratch-loading{
     font-style: italic;
     font-weight:500;
     font-size: 40px;
-    color:#306852;
+    color:#14264d;
 
     transition: 0.34s;
     opacity: 0%;
@@ -3368,7 +3791,7 @@ let chatCss = `
 
 .ls-chat-toggle{
     box-shadow: 0px 0px 0px 2px #ffffff3d inset;
-    color: #fff;
+    color: #14264d;
     font-weight: 800;
     border-radius: 8px;
     display: flex;
@@ -3376,12 +3799,12 @@ let chatCss = `
     height: 70%;
     padding: 0 12px;
     width: max-content;
-    background: linear-gradient(115deg, #4A9AFF -12.84%, #57B78A 122.07%);
+    background: linear-gradient(120deg, #ffd45c 0%, #ffe89a 100%);
     transition: background 0.3s ease, transform 0.3s ease;
     cursor: pointer;
 }
 .ls-chat-toggle:hover {
-    background: linear-gradient(115deg, #57B78A -12.84%, #4A9AFF 122.07%); /* Subtle gradient shift */
+    background: linear-gradient(120deg, #ffe89a 0%, #ffd45c 100%); /* Subtle gradient shift */
     transform: scale(1.05); /* Slightly scale the button for a smooth hover effect */
 }
 .ls-chat-toggle-button{
@@ -3452,7 +3875,7 @@ ls-chat-send-button{
     width: 40px;
     height: 100%;
     min-height: 40px;
-    background-color: #4da583;
+    background-color: #14264d;
     color:white;
     text-align: center;
     border-left: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#dcdee0'};
@@ -3528,7 +3951,7 @@ ls-chat-head-button{
     width:25px;
     height:25px;
     text-align: center;
-    background-color: #397f64;
+    background-color: #14264d;
     transition: 0.2s scale;
 
     display: flex;
@@ -3561,7 +3984,7 @@ ls-chat-head {
     height:45px;
     flex-shrink:0;
     /* min-height:45px; */
-    background-color: #4da583;
+    background-color: #14264d;
     border-radius: 8px;
     padding-inline: 11px;
     box-shadow: 0px 0px 6px 0px rgba(0,0,0,0.5);
@@ -3619,25 +4042,25 @@ ls-chat:not(.popout){
     height: auto !important;
 }
 
-/* LiveScratch chat refresh */
-ls-chat { border-radius: 14px; min-width: 270px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#d7e2dd'}; box-shadow: 0 10px 30px rgba(26,56,44,.12); }
-ls-chat-head { min-height: 54px; height: 54px; padding: 8px 10px; border-radius: 13px 13px 10px 10px; background: linear-gradient(115deg,#3fa879,#4b9fea); box-shadow: none; }
+/* CoBlocks chat refresh */
+ls-chat { border-radius: 14px; min-width: 270px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#d9e1ef'}; box-shadow: 0 10px 30px rgba(20,38,77,.12); }
+ls-chat-head { min-height: 54px; height: 54px; padding: 8px 10px; border-radius: 13px 13px 10px 10px; background: linear-gradient(120deg,#fffdf7,#ffd86b); box-shadow: inset 0 2px 0 rgba(255,255,255,.38); }
 ls-chat-head #logo { width: 34px; height: 34px !important; padding: 3px; margin-right: 8px !important; border-radius: 9px; background: rgba(255,255,255,.92); object-fit: contain; }
-ls-chat-head-text { display: flex; flex-direction: column; font-size: 16px; line-height: 18px; }
-ls-chat-head-button { width: 30px; height: 30px; padding: 6px; border-radius: 9px; background: rgba(20,73,53,.25) !important; }
-ls-chat-head-button:hover { scale: 1; background: rgba(20,73,53,.42) !important; }
+ls-chat-head-text { display: flex; flex-direction: column; color: #14264d; font-size: 16px; line-height: 18px; }
+ls-chat-head-button { width: 30px; height: 30px; padding: 6px; border-radius: 9px; background: rgba(20,38,77,.72) !important; }
+ls-chat-head-button:hover { scale: 1; background: rgba(20,38,77,.86) !important; }
 ls-chat-msgs { gap: 7px; padding: 14px 12px; font-family: "Helvetica Neue",Helvetica,Arial,sans-serif; font-size: 14px; line-height: 18px; scrollbar-width: thin; }
 ls-msg-space { height: 2px; }
 ls-msg-sender { gap: 7px; margin: 7px 0 0; }
 ls-msg-sender.mymsg { flex-direction: row-reverse; }
 ls-msg-sender-img { width: 28px; height: 28px; border-radius: 9px; background-size: cover; background-position: center; }
-ls-msg-sender-name { color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#607069'}; font-size: 12px; font-style: normal; font-weight: 700; }
-ls-msg { max-width: 82%; margin: 0; padding: 8px 10px; border: 0; border-radius: 12px 12px 12px 4px; color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#21332b'}; background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#eef4f1'}; font-size: 14px; line-height: 18px; box-shadow: none; }
-ls-msg.mymsg { border-radius: 12px 12px 4px 12px; color: #fff; background: linear-gradient(135deg,#3fa879,#438fd0); }
-ls-chat-send { min-height: 46px; margin: 8px 10px 10px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#cad8d2'}; border-radius: 11px; box-shadow: 0 3px 12px rgba(32,62,50,.08); background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#fff'}; }
+ls-msg-sender-name { color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#60708c'}; font-size: 12px; font-style: normal; font-weight: 700; }
+ls-msg { max-width: 82%; margin: 0; padding: 8px 10px; border: 0; border-radius: 12px 12px 12px 4px; color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#1f2b45'}; background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#f1f4f9'}; font-size: 14px; line-height: 18px; box-shadow: none; }
+ls-msg.mymsg { border-radius: 12px 12px 4px 12px; color: #14264d; background: linear-gradient(120deg,#dce6f7,#b9cae8); }
+ls-chat-send { min-height: 46px; margin: 8px 10px 10px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#cbd5e7'}; border-radius: 11px; box-shadow: 0 3px 12px rgba(20,38,77,.08); background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#fff'}; }
 ls-chat-input { min-width: 0; min-height: 44px; padding: 11px 12px; font-size: 14px; line-height: 20px; background: transparent; }
 ls-chat-input:empty::before { content: attr(data-placeholder); color: #86938d; pointer-events: none; }
-ls-chat-send-button { width: 44px; min-height: 44px; border: 0; border-radius: 0 10px 10px 0; background: linear-gradient(135deg,#3fa879,#4b9fea); cursor: pointer; }
+ls-chat-send-button { width: 44px; min-height: 44px; border: 0; border-radius: 0 10px 10px 0; background: linear-gradient(135deg,#7188b4,#8fa4cb); cursor: pointer; }
 ls-chat-send-button:hover { scale: 1; filter: brightness(1.08); }
 ls-chat.popout { min-width: 300px; min-height: 320px; border-radius: 14px; box-shadow: 0 18px 50px rgba(22,45,36,.28); }
 `;
@@ -3717,7 +4140,7 @@ function addChatButton() {
         let chatElem = document.createElement('div');
         chatElem.id = 'lsChatButton';
         chatElem.classList.add('ls-chat-toggle-button');
-        chatElem.innerHTML = '<span class="ls-chat-toggle" onclick="toggleChat()"><span>💬 LiveScratch Chat</span><span class="chatdot"></span></span>';
+        chatElem.innerHTML = '<span class="ls-chat-toggle" onclick="toggleChat()"><span>💬 CoBlocks Chat</span><span class="chatdot"></span></span>';
 
         const tab_list = document.querySelector('.gui_tab-list_VOr4n');
         tab_list.appendChild(chatElem);
@@ -3743,9 +4166,9 @@ function setChatUnread(num) {
 let ChatHTML = `
 <ls-chat-head id="ls-chat-banner">
     <img id="logo" src="${logoUrl}" style="height: 25px; margin-right: 5px;">
-    <ls-chat-head-text>LiveScratch Chat</ls-chat-head-text>
+    <ls-chat-head-text>CoBlocks Chat</ls-chat-head-text>
     <ls-chat-head-filler></ls-chat-head-filler>
-    <ls-chat-head-button id="popout" style="background-color: #4f947a;">
+    <ls-chat-head-button id="popout" style="background-color: #1d376b;">
         <img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2224px%22%20viewBox%3D%220%20-960%20960%20960%22%20width%3D%2224px%22%20fill%3D%22%23FFFFFF%22%3E%3Cpath%20d%3D%22M80.09-80.09v-799.82h412.13v122.95H203.04v553.92h553.92v-289.18h122.95v412.13H80.09Zm323.56-238.26-85.3-85.3%20353.3-353.31h-99.43v-122.95h307.69v307.69H756.96v-99.43l-353.31%20353.3Z%22%2F%3E%3C%2Fsvg%3E" style="height: 100%;">
     </ls-chat-head-button>
     <ls-chat-head-button onclick="toggleChat(false)">
@@ -3835,12 +4258,14 @@ async function addMessage(msg, notif) {
         ':moyai:', // 🗿
         ':nerd:', // 🤓
         ':waakul:', // https://cdn2.scratch.mit.edu/get_image/user/128606483_60x60.png Custom Emoji
-        ':livescratch:', // https://livescratch.waakul.com/assets/logo.png Custom Emoji
+        ':coblocks:', // CoBlocks custom emoji
+        ':livescratch:', // Legacy alias
     ];
     
     const customEmojis = {
         ':waakul:': 'https://cdn2.scratch.mit.edu/get_image/user/128606483_60x60.png',
-        ':livescratch:': 'https://livescratch.waakul.com/assets/logo.png',
+        ':coblocks:': logoUrl,
+        ':livescratch:': logoUrl,
     };
     
     let content = msgElem.innerHTML;
@@ -4008,7 +4433,7 @@ function refreshScratchLayout() {
             const workspace = typeof BL_UTILS !== 'undefined' ? BL_UTILS.getWorkspace?.() : null;
             if (workspace && typeof Blockly !== 'undefined' && typeof Blockly.svgResize === 'function') Blockly.svgResize(workspace);
         } catch (error) {
-            console.debug('LiveScratch workspace resize deferred:', error);
+            console.debug('CoBlocks workspace resize deferred:', error);
         }
     };
     requestAnimationFrame(() => {

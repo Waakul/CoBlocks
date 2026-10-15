@@ -65,7 +65,7 @@
                             img.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))';
                             img.classList.add('blbadge');
                             // img.style.filter = 'drop-shadow(0 4px 2px rgba(0,0,0,0.5))'
-                            img.setAttribute('title', 'This user uses livescratch');
+                            img.setAttribute('title', 'This user uses CoBlocks');
 
 
                             let container = document.createElement('span');

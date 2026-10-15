@@ -1,7 +1,7 @@
 :root {
   color-scheme: light dark;
   font-family: Inter, ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
-  background: #eef7ff;
+  background: #fff9e9;
   color: #17243b;
 }
 
@@ -16,9 +16,9 @@ body {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 15% 20%, rgba(76, 151, 255, 0.24), transparent 34%),
-    radial-gradient(circle at 85% 80%, rgba(89, 192, 89, 0.2), transparent 34%),
-    #f7fbff;
+    radial-gradient(circle at 15% 20%, rgba(255, 200, 61, 0.24), transparent 34%),
+    radial-gradient(circle at 85% 80%, rgba(38, 45, 59, 0.16), transparent 34%),
+    #fffaf2;
 }
 
 .card {
@@ -28,7 +28,7 @@ body {
   padding: 46px 42px 38px;
   text-align: center;
   background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(76, 151, 255, 0.2);
+  border: 1px solid rgba(255, 200, 61, 0.24);
   border-radius: 28px;
   box-shadow: 0 24px 80px rgba(37, 74, 122, 0.16);
 }
@@ -55,16 +55,16 @@ body {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: white;
+  color: #14264d;
   font-size: 38px;
   font-weight: 800;
-  background: linear-gradient(135deg, #4c97ff, #59c059);
-  box-shadow: 0 12px 28px rgba(76, 151, 255, 0.28);
+  background: linear-gradient(120deg, #ffd45c, #ffe89a);
+  box-shadow: 0 12px 28px rgba(255, 200, 61, 0.25);
 }
 
 .eyebrow {
   margin: 0 0 10px;
-  color: #397bcf;
+  color: #14264d;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -86,7 +86,7 @@ h1 {
 }
 
 .message strong {
-  color: #246bbf;
+  color: #14264d;
   font-weight: 750;
 }
 
@@ -111,19 +111,19 @@ button:hover {
 }
 
 button:focus-visible {
-  outline: 3px solid rgba(76, 151, 255, 0.35);
+  outline: 3px solid rgba(255, 200, 61, 0.38);
   outline-offset: 3px;
 }
 
 .primary {
-  border: 1px solid #387fd7;
+  border: 1px solid #e7a91b;
   color: white;
-  background: #4c97ff;
-  box-shadow: 0 8px 20px rgba(76, 151, 255, 0.24);
+  background: #e7a91b;
+  box-shadow: 0 8px 20px rgba(255, 200, 61, 0.24);
 }
 
 .primary:hover {
-  background: #3c87e8;
+  background: #d79a13;
 }
 
 .secondary {
@@ -157,8 +157,8 @@ button:focus-visible {
 
   body {
     background:
-      radial-gradient(circle at 15% 20%, rgba(76, 151, 255, 0.22), transparent 34%),
-      radial-gradient(circle at 85% 80%, rgba(89, 192, 89, 0.16), transparent 34%),
+      radial-gradient(circle at 15% 20%, rgba(255, 200, 61, 0.2), transparent 34%),
+      radial-gradient(circle at 85% 80%, rgba(72, 80, 98, 0.18), transparent 34%),
       #0f1725;
   }
 
@@ -174,7 +174,7 @@ button:focus-visible {
 
   .message strong,
   .eyebrow {
-    color: #79b7ff;
+    color: #ffb849;
   }
 
   .secondary {

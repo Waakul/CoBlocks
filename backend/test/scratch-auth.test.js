@@ -13,7 +13,7 @@ function response() {
     };
 }
 
-test('Scratch Auth verifies the redirect and issues a one-time LiveScratch token', async () => {
+test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', async () => {
     process.env.PUBLIC_BASE_URL = 'https://livescratchapi.waakul.com';
     const routes = new Map();
     const app = {

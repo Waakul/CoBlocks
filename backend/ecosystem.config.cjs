@@ -7,7 +7,7 @@ if (result.error) {
 module.exports = {
     apps: [
         {
-            name: "LiveScratch",
+            name: "CoBlocks",
             script: "./index.js",
             killTimeout: 60000,
 	        node_args: "--max-old-space-size=5120",	

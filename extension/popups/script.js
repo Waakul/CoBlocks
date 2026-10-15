@@ -204,7 +204,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
         if (statusCode===200) {
             addFriendGUI(name);
         } else {
-            alert('The user you tried to friend doesnt have livescratch!');
+            alert('That Scratch user has not joined CoBlocks yet!');
         }
     }
 

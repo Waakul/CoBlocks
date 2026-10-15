@@ -8,7 +8,7 @@
 //
 
 import sanitize from 'sanitize-filename';
-import { saveMapToFolder, usersPath } from './fileStorage.js';
+import { readRecoveryCopy, saveMapToFolder, usersPath } from './fileStorage.js';
 import path from 'path';
 import fs from 'fs';
 import { randomBytes } from 'node:crypto';
@@ -96,11 +96,20 @@ export default class UserManager {
 
             let filename = usersPath + path.sep + usernameFile;
 
-            if (!fs.existsSync(filename)) { return; }
-
             try {
-                let json = fs.readFileSync(filename);
-                let user = JSON.parse(json);
+                let json;
+                try { json = fs.readFileSync(filename); } catch { json = null; }
+                let user;
+                try {
+                    user = JSON.parse(json);
+                    if (!user || typeof user !== 'object' || !user.username) throw new Error('Invalid user record');
+                } catch {
+                    const recovered = readRecoveryCopy(usersPath, usernameFile, value => !!value?.username);
+                    if (!recovered) return;
+                    user = JSON.parse(recovered);
+                    saveMapToFolder({ [usernameFile]: user }, usersPath);
+                    console.warn(`Recovered user ${usernameFile} from a redundant copy.`);
+                }
                 this.users[username] = user;
             } catch (error) {
                 console.error(`Could not load user ${username}:`, error);

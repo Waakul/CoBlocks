@@ -222,9 +222,9 @@ width:fit-content;
       box-shadow: 0 7px 24px rgba(31,74,56,.08);
   }
   .ls-project-row .media-thumb img { border-radius: 10px; }
-  .ls-project-row .media-info-item.title a { color: #2d8966 !important; font-weight: 700; }
+  .ls-project-row .media-info-item.title a { color: #14264d !important; font-weight: 700; }
   .ls-project-row .media-info-item.date { color: #66756e; }
-  .ls-project-row .media-control-edit { min-height: 34px; padding-inline: 12px; border: 0; border-radius: 9px; color: #fff; background: linear-gradient(115deg,#3fa879,#4b9fea); }
+  .ls-project-row .media-control-edit { min-height: 34px; padding-inline: 12px; border: 1px solid rgba(224,168,27,.28); border-radius: 9px; color: #14264d; background: linear-gradient(120deg,#ffd45c,#ffe89a); }
   .ls-project-row .media-trash { display: inline-flex; padding: 7px 10px; border-radius: 8px; color: #a54242 !important; background: #fff0f0; font-weight: 700; }
   .ls-project-row .onlineBubble { width: 24px; height: 24px; margin-left: -4px; margin-right: 0; border-radius: 50%; outline: 2px solid #fff; }
 `;
@@ -389,7 +389,7 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
         addStartVerificationCallback(() => {
             document.querySelector('#verifying')?.remove();
             document.querySelector('#unverified')?.remove();
-            document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#ea47ff; color:white;">LiveScratch sign in is in progress…</div>');
+            document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#e7a91b; color:white;">CoBlocks sign in is in progress…</div>');
         });
         addEndVerificationCallback(async (success, message) => {
             document.querySelector('#verifying')?.remove();
@@ -402,7 +402,7 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
                 removeHideLivescratchButton();
                 setTimeout(() => { document.querySelector('#lsSuccess')?.remove(); }, 1000 * 2);
             } else {
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">LiveScratch sign in failed. Open the extension popup and try Scratch Auth again.</div>');
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">CoBlocks sign in failed. Open the extension popup and try Scratch Auth again.</div>');
         
             }
         });
@@ -415,10 +415,10 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
             console.log('verifying',verifying);
             if (verifying) {
                 document.querySelector('#verifying')?.remove();
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#ea47ff; color:white;">LiveScratch sign in is in progress…</div>');
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#e7a91b; color:white;">CoBlocks sign in is in progress…</div>');
             } else {
                 if (newVerified) { return; }
-                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">Connect LiveScratch with Scratch Auth from the extension popup.</div>');
+                document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">Connect CoBlocks with Scratch Auth from the extension popup.</div>');
             }
         });
 

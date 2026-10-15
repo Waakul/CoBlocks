@@ -1,22 +1,63 @@
-# LiveScratch
-[![Install Chrome Extension](https://img.shields.io/badge/Install-Chrome%20Extension-orange?logo=google-chrome)](https://chromewebstore.google.com/detail/livescratch-live-scratch/pfaldlkkohfdnmlcladmhlihpbhlkolm)
+<p align="center">
+  <img src="extension/img/CoBlocksLogo.png" alt="CoBlocks" width="360">
+</p>
 
-Real time collaboration extension for scratch!
-- Sign in from the extension popup with [Scratch Auth](https://auth.itinerary.eu.org/documentation/using-scratch-auth). LiveScratch verifies the callback on the backend and stores its own token for later requests.
-- 🟢: UPTIME: https://status.uptime-monitor.io/67497373f98a6334aaea672d
-- ☕: DONATE: https://ko-fi.com/waakul
-# Run locally
-- `git clone https://github.com/Waakul/LiveScratch.git`
-- cd livescratch/backend
-- `npm install`
-- Create the env file based on .env.example.
-- Set `PUBLIC_BASE_URL` to the public URL of your backend so Scratch Auth can return to it. The default is the hosted LiveScratch API.
-- `npm run start` (This will create a pm2 process & start it).
-- Additionally, `npm run stop` to stop the backend process & `npm run delete` to delete the pm2 process.
-- Now go ahead and set Custom server (in the popup) to `http://localhost:<PORT>`
-- Now load the extension from chrome or any other chomium-based browsers and voila! You have ran livescratch locally.
-# Contribute
-Your free to go ahead and create a pull request for your work! It may be merged and you'll be credited!
-# Credits:
-- [@Waakul](https://github.com/Waakul) (Owner, Maintainer, Developer)
-- The original code this was developed from is made by [@MeechaPooch](https://github.com/meechapooch) and [@rgantzos](https://github.com/rgantzos) from [Blocklive](https://github.com/BlockliveScratch/Blocklive)
+<h1 align="center">CoBlocks</h1>
+
+<p align="center">
+  Real time collaboration for Scratch.<br>
+  <sub>Previously LiveScratch</sub>
+</p>
+
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/livescratch-live-scratch/pfaldlkkohfdnmlcladmhlihpbhlkolm"><img src="https://img.shields.io/badge/Install-Chrome%20Extension-FFC83D?logo=googlechrome&logoColor=14264D" alt="Install the CoBlocks Chrome extension"></a>
+  <a href="https://status.uptime-monitor.io/67497373f98a6334aaea672d"><img src="https://img.shields.io/badge/API-Status-14264D" alt="CoBlocks API status"></a>
+  <a href="https://ko-fi.com/waakul"><img src="https://img.shields.io/badge/Support-Ko--fi-FFC83D" alt="Support CoBlocks on Ko-fi"></a>
+</p>
+
+## Features
+
+- Collaborate on Scratch projects in real time.
+- Sign in securely with [Scratch Auth](https://auth.itinerary.eu.org/documentation/using-scratch-auth).
+- Invite Scratch friends and manage project access.
+- Chat with collaborators inside the Scratch editor.
+- Share Scratch blocks through the project backpack.
+- Keep local recovery copies to protect work when the backend is unavailable.
+
+## Run locally
+
+### Backend
+
+```sh
+git clone https://github.com/Waakul/CoBlocks.git
+cd CoBlocks/backend
+npm install
+cp .env.example .env
+npm run start
+```
+
+Edit `.env` before starting the server. Set `PUBLIC_BASE_URL` to the public origin that Scratch Auth should return to. For local extension testing, enable **Custom Server** in the popup and enter `http://localhost:<PORT>`.
+
+Use `npm run stop` to stop the PM2 process and `npm run delete` to remove it.
+
+### Extension
+
+1. Open your browser's extensions page.
+2. Enable developer mode.
+3. Choose **Load unpacked** and select the `extension` folder.
+4. Open Scratch and use the CoBlocks popup to sign in.
+
+## Contributing
+
+Issues and pull requests are welcome. Keep changes focused, explain the user impact, and include verification steps with your pull request.
+
+## Credits
+
+- [Waakul](https://github.com/Waakul) — owner, maintainer, and developer.
+- CoBlocks is based on the open source [Blocklive](https://github.com/BlockliveScratch/Blocklive) project by [MeechaPooch](https://github.com/meechapooch) and [rgantzos](https://github.com/rgantzos).
+
+## License
+
+See [LICENSE](LICENSE).
+
+CoBlocks is an independent project and is not affiliated with Scratch or the Scratch Foundation.

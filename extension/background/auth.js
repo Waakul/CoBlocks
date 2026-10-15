@@ -59,7 +59,7 @@ async function logoutLivescratch({ waitForServer = true } = {}) {
     try {
         LIVESCRATCH.onLoggedOut?.();
     } catch (error) {
-        console.warn('Could not leave the active LiveScratch session during logout:', error);
+        console.warn('Could not leave the active CoBlocks session during logout:', error);
     }
 
     if (username && username !== '*' && token) {

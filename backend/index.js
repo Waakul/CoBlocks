@@ -4,6 +4,7 @@ import cors from 'cors';
 import basicAuth from 'express-basic-auth';
 import http from 'http';
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import sanitize from 'sanitize-filename';
 
@@ -14,6 +15,8 @@ import { installCleaningJob } from './utils/removeOldProjects.js';
 import { countRecentShared, recordPopup, saveRecent } from './utils/recentUsers.js';
 import { setPaths, authenticate, fullAuthenticate } from './utils/scratch-auth.js';
 import { reconcileProjectReferences, userOwnsProject } from './utils/projectAccess.js';
+import { canDeleteBackpackItem, MAX_BACKPACK_ITEMS, normalizeBackpack, validateBackpackItem } from './utils/backpack.js';
+import { isScratchProjectJson } from './utils/projectSnapshot.js';
 import initSockets from './WebSockets.js';
 
 const app = express();
@@ -33,7 +36,7 @@ const ioHttp = new Server(httpServer, {
 });
 
 export let isFinalSaving = false;
-const restartMessage = 'The Livescratch server is restarting. You will lose connection for a few seconds.';
+const restartMessage = 'The CoBlocks server is restarting. You will lose connection for a few seconds.';
 
 const sleep = (millis) => new Promise(res => setTimeout(res, millis));
 const apiRequests = new Map();
@@ -65,6 +68,7 @@ app.use((req, res, next) => {
 
 // --- 1. OPTIMIZED LOAD ROUTINE ---
 console.log('Booting server... Projects will load when requested.');
+fileStorageUtils.initializeStorageRecovery();
 const savedLastId = Number(fs.existsSync(fileStorageUtils.lastIdPath) ? fs.readFileSync(fileStorageUtils.lastIdPath, 'utf8') : 0);
 const lastId = fs.readdirSync(fileStorageUtils.livescratchPath).reduce((max, name) => {
     const id = Number(name);
@@ -120,17 +124,18 @@ api.post('/newProject/:scratchId/:owner', (req, res) => {
     if (!validProjectId(req.params.scratchId) || sanitize(req.params.scratchId.toString()) === '') {
         return res.send({ err: 'invalid scratch id' });
     }
+    if (!isScratchProjectJson(req.body)) return res.status(400).send({ err: 'Invalid Scratch project data.' });
     
     let project = sessionManager.getScratchToLSProject(req.params.scratchId);
     if (!project) {
         console.log(`Creating new project: ${req.params.scratchId} by ${req.params.owner}`);
         project = sessionManager.newProject(req.params.owner, req.params.scratchId, req.body, req.query.title);
-        if (!project) return res.status(500).send({ err: 'Could not create the LiveScratch project.' });
+        if (!project) return res.status(500).send({ err: 'Could not create the CoBlocks project.' });
         userManager.newProject(req.params.owner, project.id);
         sessionManager.persistProject(project.id);
         userManager.persistUser(req.params.owner);
     } else if (!sessionManager.canUserAccessProject(req.params.owner, project.id)) {
-        return res.status(409).send({ err: 'This Scratch project is already linked to another LiveScratch project.' });
+        return res.status(409).send({ err: 'This Scratch project is already linked to another CoBlocks project.' });
     }
     res.send({ id: project.id });
 });
@@ -152,7 +157,7 @@ api.get('/lsId/:scratchId/:uname', (req, res) => {
 api.get('/scratchIdInfo/:scratchId', (req, res) => {
     if (!validProjectId(req.params.scratchId)) return res.status(400).send({ err: 'Invalid Scratch project ID.' });
     const entry = sessionManager.getScratchProjectEntry(req.params.scratchId);
-    if (!entry) return res.status(404).send({ err: 'No LiveScratch project is linked to this Scratch project.' });
+    if (!entry) return res.status(404).send({ err: 'No CoBlocks project is linked to this Scratch project.' });
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, entry.lsId)) return res.status(403).send({ noauth: true });
     res.send(entry);
 });
@@ -162,7 +167,7 @@ api.get('/projectTitle/:id', (req, res) => {
 
     const project = sessionManager.getProject(req.params.id);
     if (!project) {
-        res.send({ err: `could not find project with livescratch id: ${req.params.id}` });
+        res.send({ err: `Could not find a CoBlocks project with ID ${req.params.id}.` });
     } else {
         res.send({ title: project.project.title });
     }
@@ -170,21 +175,25 @@ api.get('/projectTitle/:id', (req, res) => {
 
 api.post('/projectSavedJSON/:lsId/:version', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
+    if (!isScratchProjectJson(req.body)) return res.status(400).send({ err: 'Invalid Scratch project data.' });
+    const version = Number(req.params.version);
+    if (!Number.isFinite(version) || version < -1) return res.status(400).send({ err: 'Invalid project version.' });
 
     const project = sessionManager.getProject(req.params.lsId);
     if (!project) {
         console.log(`Could not find project: ${req.params.lsId}`);
         return res.send({ err: 'Couldn\'t find the specified project!' });
     }
-    project.scratchSavedJSON(req.body, parseFloat(req.params.version));
+    project.scratchSavedJSON(req.body, version);
+    if (!sessionManager.persistProject(req.params.lsId)) return res.status(500).send({ err: 'Could not safely save the project.' });
     res.send({ success: 'Successfully saved the project!' });
 });
 
 api.get('/projectJSON/:lsId', (req, res) => {
-    if (!fullAuthenticate(req.query.username, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
-
+    if (!authenticate(req.query.username, req.headers.authorization)) return res.status(401).send({ noauth: true });
     const project = sessionManager.getProject(req.params.lsId);
     if (!project) return res.sendStatus(404);
+    if (!sessionManager.canUserAccessProject(req.query.username, req.params.lsId)) return res.status(403).send({ noauth: true });
     
     res.send({ json: project.projectJson, version: project.jsonVersion });
 });
@@ -232,6 +241,55 @@ api.get('/chat/:id', (req, res) => {
     if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
     const project = sessionManager.getProject(req.params.id);
     res.send(project ? project.getChat() : []);
+});
+
+api.get('/backpack/:id', (req, res) => {
+    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.status(403).send({ noauth: true });
+    const project = sessionManager.getProject(req.params.id);
+    if (!project) return res.status(404).send({ err: 'Project not found.' });
+    res.send(normalizeBackpack(project));
+});
+
+api.post('/backpack/:id', (req, res) => {
+    const username = req.headers.uname;
+    if (!fullAuthenticate(username, req.headers.authorization, req.params.id)) return res.status(403).send({ noauth: true });
+    const project = sessionManager.getProject(req.params.id);
+    if (!project) return res.status(404).send({ err: 'Project not found.' });
+    const backpack = normalizeBackpack(project);
+    if (backpack.length >= MAX_BACKPACK_ITEMS) return res.status(409).send({ err: `The shared backpack can hold up to ${MAX_BACKPACK_ITEMS} scripts.` });
+    const validated = validateBackpackItem(req.body);
+    if (validated.error) return res.status(400).send({ err: validated.error });
+    const item = {
+        id: randomUUID(),
+        ...validated.value,
+        createdBy: userManager.findUser(username)?.username || username,
+        createdAt: Date.now(),
+    };
+    backpack.unshift(item);
+    if (!sessionManager.persistProject(req.params.id)) {
+        backpack.shift();
+        return res.status(500).send({ err: 'Could not save the shared backpack.' });
+    }
+    project.session.sendChangeFrom(null, { meta: 'backpack.updated' }, true);
+    res.status(201).send(item);
+});
+
+api.delete('/backpack/:id/:itemId', (req, res) => {
+    const username = req.headers.uname;
+    if (!fullAuthenticate(username, req.headers.authorization, req.params.id)) return res.status(403).send({ noauth: true });
+    const project = sessionManager.getProject(req.params.id);
+    if (!project) return res.status(404).send({ err: 'Project not found.' });
+    const backpack = normalizeBackpack(project);
+    const index = backpack.findIndex(item => item.id === req.params.itemId);
+    if (index === -1) return res.status(404).send({ err: 'Backpack item not found.' });
+    if (!canDeleteBackpackItem(project, backpack[index], username)) return res.status(403).send({ err: 'Only the project owner or the person who shared this script can remove it.' });
+    const [removed] = backpack.splice(index, 1);
+    if (!sessionManager.persistProject(req.params.id)) {
+        backpack.splice(index, 0, removed);
+        return res.status(500).send({ err: 'Could not update the shared backpack.' });
+    }
+    project.session.sendChangeFrom(null, { meta: 'backpack.updated' }, true);
+    res.send({ success: true });
 });
 
 // --- ADMIN / BAN ENDPOINTS ---
@@ -335,7 +393,7 @@ api.get('/active/:lsId', (req, res) => {
 });
 
 api.get('/', (req, res) => {
-    res.send('LiveScratch API');
+    res.send('CoBlocks API');
 });
 
 api.post('/friends/:user/:friend', (req, res) => {

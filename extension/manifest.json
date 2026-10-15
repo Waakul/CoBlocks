@@ -1,10 +1,13 @@
 {
-    "name": "Livescratch: Live Scratch Collabs!",
-    "description": "Multiple Scratchers Can Work Together On The Same Project!",
+    "name": "CoBlocks: Live Scratch Collaboration",
+    "description": "Create Scratch projects together in real time with CoBlocks.",
     "version": "0.3.0",
     "version_name": "0.3.0-pre",
     "icons": {
-       "128": "icon128.png" 
+       "16": "icon16.png",
+       "32": "icon32.png",
+       "48": "icon48.png",
+       "128": "icon128.png"
     },
     "manifest_version": 3,
     "content_scripts": [
@@ -36,13 +39,17 @@
     "optional_host_permissions": ["http://*/*", "https://*/*"],
     "optional_permissions":["notifications"],
     "web_accessible_resources" : [{
-        "resources":["/scripts/editor.js", "/scripts/badge.js","/scripts/mystuff.js","/img/LogoLiveScratch.svg","/sounds/ping.mp3"],
+        "resources":["/scripts/editor.js", "/scripts/badge.js","/scripts/mystuff.js","/img/CoBlocksIcon.png","/img/CoBlocksLogo.png","/sounds/ping.mp3"],
         "matches":["<all_urls>"]
     }],
     "externally_connectable": {
         "matches": ["https://scratch.mit.edu/*"]
     },
     "action": {
+        "default_icon": {
+            "16": "icon16.png",
+            "32": "icon32.png"
+        },
         "default_popup": "popups/popup.html"
     }
 }

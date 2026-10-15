@@ -11,7 +11,7 @@ test('project membership is authoritative and case insensitive', () => {
     assert.equal(userOwnsProject(project, 'Bob'), false);
 });
 
-test('Scratch IDs cannot be remapped to another LiveScratch project', () => {
+test('Scratch IDs cannot be remapped to another CoBlocks project', () => {
     assert.equal(scratchLinkConflicts(null, '12'), false);
     assert.equal(scratchLinkConflicts({ lsId: '12' }, 12), false);
     assert.equal(scratchLinkConflicts({ lsId: '99' }, '12'), true);

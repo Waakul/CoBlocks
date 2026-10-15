@@ -33,16 +33,25 @@ header {
   gap: 9px;
   align-self: stretch;
   z-index: 10;
-  background: linear-gradient(100deg, #4C97FF -2.26%, #59C059 135.83%);
-  box-shadow: 0px 0px 102.3px 0px rgba(0, 0, 0, 0.08);
+  background: linear-gradient(120deg, #fffdf7 0%, #ffd86b 100%);
+  border-bottom: 1px solid rgba(20, 38, 77, 0.08);
+  box-shadow: 0 8px 28px rgba(20, 38, 77, 0.10);
 }
 
 header #logo {
   width: 52px;
 }
 
+header #brand-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
 header #title {
-  color: #FFF;
+  color: #14264d;
   font-family: Montserrat;
   font-size: 23.398px;
   font-style: normal;
@@ -50,8 +59,16 @@ header #title {
   line-height: normal;
 }
 
+header #previous-name {
+  color: rgba(20, 38, 77, 0.68);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 header #version {
-  color: rgba(255, 255, 255, 0.83);
+  color: rgba(20, 38, 77, 0.72);
   font-family: Montserrat;
   font-size: 15.599px;
   font-style: normal;
@@ -505,15 +522,15 @@ hr {
 }
 
 body.dark-mode *, body.dark-mode{
-  --BG: linear-gradient(147deg, #204635 -9.97%, #25446D 134.99%);
+  --BG: linear-gradient(145deg, #20242d 0%, #343a47 100%);
   --Text: #FFF;
   --Text-Solid: #FFF;
-  --Supplementary: rgba(255, 255, 255, 0.14);
-  --Sub: rgba(255, 255, 255, 0.337);
-  --Sub-Semi: rgba(255, 255, 255, 0.1);
-  --button-large-stroke: rgba(255, 255, 255, 0.31);
-  --button-large: linear-gradient(115deg, #4794F6 -12.84%, #55B488 122.07%);
-  --switch-enabled: linear-gradient(116deg, #56B48B 0%, #55AAB5 78.39%);
+  --Supplementary: rgba(255, 255, 255, 0.10);
+  --Sub: rgba(255, 255, 255, 0.16);
+  --Sub-Semi: rgba(255, 255, 255, 0.075);
+  --button-large-stroke: rgba(255, 255, 255, 0.22);
+  --button-large: linear-gradient(120deg, #ffd45c 0%, #ffe89a 100%);
+  --switch-enabled: linear-gradient(116deg, #ffd45c 0%, #8da2ca 100%);
 }
 
 body.dark-mode #credits .credit, #links a {
@@ -522,15 +539,15 @@ body.dark-mode #credits .credit, #links a {
 }
 
 body.light-mode *, body.light-mode{
-  --BG: linear-gradient(147deg, #E2FFE2 -9.97%, #D8E8FF 134.99%);
+  --BG: #f7f9fd;
   --Text: #2c2c2c;
   --Text-Solid: #000000;
   --Supplementary: rgba(255, 255, 255, 0.29);
   --Sub: rgba(255, 255, 255, 0.611);
   --Sub-Semi: rgba(255, 255, 255, 0.4);
   --button-large-stroke: rgba(255, 255, 255, 0.58);
-  --button-large: linear-gradient(115deg, #4A9AFF -12.84%, #57B78A 122.07%);
-  --switch-enabled: linear-gradient(116deg, #56B48B 0%, #55AAB5 78.39%);
+  --button-large: linear-gradient(120deg, #ffd45c 0%, #ffe89a 100%);
+  --switch-enabled: linear-gradient(116deg, #ffd45c 0%, #8da2ca 100%);
 }
 
 body.light-mode #link-uptime img {
@@ -541,38 +558,61 @@ body.light-mode #switch-theme {
   background-image: url("../img/icons/light-switch.svg");
   background-repeat: no-repeat;
   background-position: center;
+  background-color: rgba(20, 38, 77, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 3px 10px rgba(20, 38, 77, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 body.dark-mode #switch-theme {
   background-image: url("../img/icons/dark-switch.svg");
   background-repeat: no-repeat;
   background-position: center;
+  background-color: #14264d;
+  border: 1px solid rgba(255, 212, 92, 0.9);
+  box-shadow: 0 3px 10px rgba(20, 38, 77, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+#switch-theme {
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+#switch-theme:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(20, 38, 77, 0.3);
+}
+
+#switch-theme:focus-visible {
+  outline: 3px solid rgba(20, 38, 77, 0.28);
+  outline-offset: 2px;
 }
 
 /* Refreshed popup layout */
 html { background: transparent; }
 body { width: 390px; height: 520px; min-height: 520px; max-height: 520px; overflow: hidden; }
 body, body * { box-sizing: border-box; }
-header { flex: 0 0 auto; min-height: 64px; padding: 10px 16px; gap: 10px; box-shadow: 0 8px 28px rgba(30,72,55,.14); }
+header { flex: 0 0 auto; min-height: 64px; padding: 10px 16px; gap: 10px; box-shadow: 0 8px 28px rgba(20,38,77,.10); }
 header #logo { width: 42px; height: 42px; object-fit: contain; }
 header #title { font-size: 20px; font-weight: 700; letter-spacing: -.35px; }
-header #version { padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.16); font-size: 11px; }
+header #version { padding: 3px 7px; border-radius: 999px; color: #14264d; background: rgba(255,255,255,.52); font-size: 11px; }
 header #switch-theme { right: 10px; width: 38px; height: 38px; padding: 0; border-radius: 10px; }
 #contents { flex: 1 1 auto; min-height: 0; padding: 18px; gap: 14px; justify-content: flex-start; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 #contents::-webkit-scrollbar { width: 8px; }
 #contents::-webkit-scrollbar-track { background: transparent; }
-#contents::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(67,105,90,.3); background-clip: padding-box; }
-#floating-logo, #floating-logo-back { right: -25px; top: 88px; width: 145px; height: 145px; opacity: .12; pointer-events: none; }
-#friends-list { width: 100%; margin: 0; padding: 15px; gap: 10px; border: 1px solid var(--Sub); border-radius: 14px; background: var(--Sub-Semi); backdrop-filter: blur(12px); }
+#contents::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(20,38,77,.3); background-clip: padding-box; }
+#floating-logo, #floating-logo-back { right: 4px; top: 88px; width: 145px; height: 145px; pointer-events: none; }
+#floating-logo { opacity: .28; filter: blur(3px); }
+#floating-logo-back { opacity: .16; filter: blur(16px); }
+#friends-list { width: 100%; margin: 0; padding: 15px; gap: 10px; border: 1px solid var(--Sub); border-radius: 14px; background: var(--Sub-Semi); backdrop-filter: blur(3px); }
 .title { font-size: 18px; font-weight: 700; letter-spacing: -.25px; }
 info { font-size: 12px; line-height: 17px; }
-.input { min-width: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 12px rgba(25,62,47,.07); }
+.input { min-width: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 12px rgba(20,38,77,.08); }
 .input input { min-width: 0; height: 40px; padding: 0 12px; border-radius: 0; outline: 0; }
 .input span { width: 40px; justify-content: center; border-radius: 0; }
 #friends { min-height: 36px; max-height: 128px; gap: 6px; }
 #friends li > span:nth-child(1) { padding: 8px 11px; border-radius: 9px 0 0 9px; }
 #friends li > span:nth-child(2) { border-radius: 0 9px 9px 0; }
-#projects { position: static; width: 100%; min-height: 40px; margin: 2px 0 0; padding: 9px 14px; border-radius: 10px; font-weight: 700; box-shadow: 0 5px 18px rgba(35,103,75,.18); }
+#projects { position: static; width: 100%; min-height: 40px; margin: 2px 0 0; padding: 9px 14px; border-radius: 10px; color: #14264d; font-weight: 700; box-shadow: 0 5px 18px rgba(20,38,77,.10); }
 #settings-container { width: 100%; padding: 2px; }
 #settings-dropdown { width: 100% !important; min-height: 38px; padding: 8px 10px; border-radius: 10px; background: var(--Sub-Semi); font-weight: 700; }
 #settings { margin-top: 7px; padding: 13px !important; gap: 13px; border: 1px solid var(--Sub); border-radius: 12px; background: var(--Sub-Semi); }
@@ -580,7 +620,7 @@ info { font-size: 12px; line-height: 17px; }
 #server-url { min-width: 0; height: 34px; padding: 0 9px; }
 #auth-account { margin-top: 2px; border-radius: 10px; }
 .popup { left: 18px; right: 18px; width: auto; padding: 18px; border-radius: 14px; background: var(--Sub); }
-#scratch-auth-login { width: 100%; min-height: 40px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(115deg,#3fa879,#4b9fea); font-weight: 700; }
+#scratch-auth-login { width: 100%; min-height: 40px; border: 1px solid rgba(224,168,27,.28); border-radius: 10px; color: #14264d; background: linear-gradient(120deg,#ffd45c,#ffe89a); font-weight: 700; }
 footer { flex: 0 0 auto; width: 100%; padding: 14px 18px; gap: 10px; }
 footer > .flex-horiz:first-child { gap: 10px !important; }
 .credit { min-width: 0; height: 38px; padding-right: 8px; }

@@ -1,22 +1,13 @@
 import fs from 'fs';
 import fsp from 'fs/promises';
-import path, { sep } from 'path';
+import path from 'path';
 import sanitize from 'sanitize-filename';
-import { livescratchPath, lastIdPath, saveMapToFolder, saveMapToFolderAsync, scratchprojectsPath } from './fileStorage.js';
-import { Blob } from 'node:buffer';
+import { deleteRecoveryCopies, livescratchPath, lastIdPath, readRecoveryCopy, saveMapToFolder, saveMapToFolderAsync, scratchprojectsPath } from './fileStorage.js';
 import { countPopup, countRecent, countRecentRealtime, countRecentShared, countUniquePopup } from './recentUsers.js';
 import { getAuthStats } from './scratch-auth.js';
 import { numWithCreds, numWithoutCreds } from './scratch-auth.js';
 import { scratchLinkConflicts } from './projectAccess.js';
-
-const ensureDirectoryExistence = (filePath) => {
-    const dirname = path.dirname(filePath);
-    if (fs.existsSync(dirname)) {
-        return true;
-    } 
-    ensureDirectoryExistence(dirname);
-    fs.mkdirSync(dirname); 
-};
+import { isScratchProjectJson } from './projectSnapshot.js';
 
 const OFFLOAD_TIMEOUT_MILLIS = 45 * 1000; // you get two minutes before the project offloads
 
@@ -222,6 +213,7 @@ class ProjectWrapper {
             linkedWith: this.linkedWith,
             owner: this.owner,
             sharedWith: this.sharedWith,
+            backpack: this.backpack,
             chat: this.chat,
         };
         return ret;
@@ -258,8 +250,10 @@ class ProjectWrapper {
     owner;
     sharedWith = [];
 
+    backpack = [];
+
     chat = [];
-    static defaultChat = { sender: 'Livescratch', text: 'Welcome! Chat is public, monitored, and filtered. Report inappropriate things and bugs to @Waakul.' };
+    static defaultChat = { sender: 'CoBlocks', text: 'Welcome! Chat is public, monitored, and filtered. Report inappropriate things and bugs to @Waakul.' };
 
     constructor(owner, scratchId, projectJson, lsId, title) {
         if (owner == '&') { return; }
@@ -289,7 +283,7 @@ class ProjectWrapper {
         this.chat = this.chat.slice(-n);
     }
     serverSendChat(message, from) {
-        if (!from) { from = 'Livescratch'; }
+        if (!from) { from = 'CoBlocks'; }
         let msg = {
             'meta': 'chat',
             'msg': {
@@ -472,12 +466,22 @@ export default class SessionManager {
     reloadProject(id) {
         id = sanitize(id + '');
         let filename = livescratchPath + path.sep + id;
-        let d = null;
-        if (!(id in this.livescratch) && fs.existsSync(filename)) {
+        if (!(id in this.livescratch)) {
             try {
-                let file = fs.readFileSync(filename);
-
-                let json = JSON.parse(file);
+                let file;
+                try { file = fs.readFileSync(filename); } catch { file = null; }
+                let json;
+                try {
+                    json = JSON.parse(file);
+                    if (!isScratchProjectJson(json?.projectJson)) throw new Error('Invalid Scratch project snapshot');
+                    ProjectWrapper.fromJSON(json);
+                } catch {
+                    const recovered = readRecoveryCopy(livescratchPath, id, value => value?.project && isScratchProjectJson(value?.projectJson) && String(value?.id) === String(id));
+                    if (!recovered) return;
+                    json = JSON.parse(recovered);
+                    saveMapToFolder({ [id]: json }, livescratchPath);
+                    console.warn(`Recovered CoBlocks project ${id} from a redundant copy.`);
+                }
                 let project = ProjectWrapper.fromJSON(json);
                 this.livescratch[id] = project;
                 console.log('reloaded livescratch ' + id);
@@ -500,9 +504,20 @@ export default class SessionManager {
         if (!(id in this.livescratch)) {
             try {
 
-                let file = await fsp.readFile(livescratchPath + path.sep + id);
-
-                let json = JSON.parse(file);
+                let file;
+                try { file = await fsp.readFile(livescratchPath + path.sep + id); } catch { file = null; }
+                let json;
+                try {
+                    json = JSON.parse(file);
+                    if (!isScratchProjectJson(json?.projectJson)) throw new Error('Invalid Scratch project snapshot');
+                    ProjectWrapper.fromJSON(json);
+                } catch {
+                    const recovered = readRecoveryCopy(livescratchPath, id, value => value?.project && isScratchProjectJson(value?.projectJson) && String(value?.id) === String(id));
+                    if (!recovered) return;
+                    json = JSON.parse(recovered);
+                    saveMapToFolder({ [id]: json }, livescratchPath);
+                    console.warn(`Recovered CoBlocks project ${id} from a redundant copy.`);
+                }
                 let project = ProjectWrapper.fromJSON(json);
                 this.livescratch[id] = project;
                 console.log('reloaded livescratch ' + id);
@@ -518,7 +533,7 @@ export default class SessionManager {
         if (!project) return { ok: false, error: 'Project not found.' };
         const existingEntry = this.getScratchProjectEntry(scratchId);
         if (scratchLinkConflicts(existingEntry, id)) {
-            return { ok: false, conflict: true, error: 'This Scratch project is already linked to another LiveScratch project.' };
+            return { ok: false, conflict: true, error: 'This Scratch project is already linked to another CoBlocks project.' };
         }
         project.linkProject(scratchId, owner, version);
         // this.scratchprojects[scratchId] = {owner,lsId:id}
@@ -683,6 +698,7 @@ export default class SessionManager {
         if (fs.existsSync(projectPath)) {
             try { fs.rmSync(projectPath); } catch (e) { console.error('error when deleting project file after unsharing with everyone', e); }
         }
+        deleteRecoveryCopies(livescratchPath, id);
     }
 
     persistProject(id) {
@@ -701,9 +717,19 @@ export default class SessionManager {
             if (!scratchId) { return; }
             let scratchIdFilename = sanitize(scratchId + '');
             let filename = scratchprojectsPath + path.sep + scratchIdFilename;
-            if (!fs.existsSync(filename)) { return null; }
-            let file = fs.readFileSync(filename);
-            let entry = JSON.parse(file);
+            let file;
+            try { file = fs.readFileSync(filename); } catch { file = null; }
+            let entry;
+            try {
+                entry = JSON.parse(file);
+                if (!entry?.lsId && !entry?.blId) throw new Error('Invalid project link');
+            } catch {
+                const recovered = readRecoveryCopy(scratchprojectsPath, scratchIdFilename, value => !!(value?.lsId || value?.blId));
+                if (!recovered) return null;
+                entry = JSON.parse(recovered);
+                saveMapToFolder({ [scratchIdFilename]: entry }, scratchprojectsPath);
+                console.warn(`Recovered Scratch project link ${scratchIdFilename} from a redundant copy.`);
+            }
             if (entry && !entry.lsId && entry.blId) entry.lsId = entry.blId;
             return entry;
         } catch (e) { console.error(e); }
@@ -715,21 +741,13 @@ export default class SessionManager {
             if (scratchLinkConflicts(existing, lsId)) return false;
             let scratchIdFilename = sanitize(scratchId + '');
             if (!scratchIdFilename) return false;
-            let filename = scratchprojectsPath + path.sep + scratchIdFilename;
             let entry = { owner, lsId };
-            let fileData = JSON.stringify(entry);
-            ensureDirectoryExistence(filename);
-            const temp = `${filename}.${process.pid}.tmp`;
-            fs.writeFileSync(temp, fileData);
-            fs.renameSync(temp, filename);
-            return true;
+            return saveMapToFolder({ [scratchIdFilename]: entry }, scratchprojectsPath);
         } catch (e) { console.error(e); return false; }
     }
     doesScratchProjectEntryExist(scratchId) {
         if (!scratchId) { return false; }
-        let scratchIdFilename = sanitize(scratchId + '');
-        let filename = scratchprojectsPath + path.sep + scratchIdFilename;
-        return fs.existsSync(filename);
+        return !!this.getScratchProjectEntry(scratchId);
     }
     deleteScratchProjectEntry(scratchId, expectedLsId = null) {
         console.log(`DELETING scratch project entry ${scratchId}`);
@@ -740,10 +758,11 @@ export default class SessionManager {
         let scratchIdFilename = sanitize(scratchId + '');
         let filename = scratchprojectsPath + path.sep + scratchIdFilename;
         fs.rmSync(filename);
+        deleteRecoveryCopies(scratchprojectsPath, scratchIdFilename);
         return true;
     }
 
-    // if 'from' is null, defaults to 'Livescratch'
+    // if 'from' is null, defaults to 'CoBlocks'
     broadcastMessageToAllActiveProjects(message, from) {
         Object.entries(this.livescratch).forEach(entry => {
             let id = entry[0];

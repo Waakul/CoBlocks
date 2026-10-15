@@ -11,22 +11,25 @@
   </head>
   <body class="light-mode">
     <header>
-      <img id="logo" src="/img/LogoLiveScratch.svg"></img>
-      <span id="title">LiveScratch</span>
+      <img id="logo" src="/img/CoBlocksIcon.png" alt="CoBlocks">
+      <div id="brand-name">
+        <span id="title">CoBlocks</span>
+        <span id="previous-name">Previously LiveScratch</span>
+      </div>
       <span id="version"></span>
       <span id="switch-theme" class="button"></span>
     </header>
 
     <div id="loggedout" style="display: none;">
-      <img id="floating-logo-back" src="/img/LogoLiveScratchFlat.svg">
-      <img id="floating-logo" src="/img/LogoLiveScratchFlat.svg">
+      <img id="floating-logo-back" src="/img/CoBlocksIcon.png" alt="">
+      <img id="floating-logo" src="/img/CoBlocksIcon.png" alt="">
       <span class="title">Uh Oh! You're Logged Out!</span>
-      <info>Login to use LiveScratch!</info>
+      <info>Sign in to use CoBlocks!</info>
     </div>
 
     <div id="contents">
-      <img id="floating-logo-back" src="/img/LogoLiveScratchFlat.svg">
-      <img id="floating-logo" src="/img/LogoLiveScratchFlat.svg">
+      <img id="floating-logo-back" src="/img/CoBlocksIcon.png" alt="">
+      <img id="floating-logo" src="/img/CoBlocksIcon.png" alt="">
       <div id="friends-list">
         <div class="group">
           <span class="title">Your Friends List:</span>
@@ -92,13 +95,13 @@
 
         <div style="display: flex; flex-direction: row; align-items: center; justify-content: center;">
           <input type="checkbox" id="privme"/>
-          <label for="privme">Hide that i use LiveScratch</label>
+          <label for="privme">Hide that I use CoBlocks</label>
         </div>
       </div>
 
       <div id="auth-account" hidden>
         <div>
-          <span class="account-label">LiveScratch account</span>
+          <span class="account-label">CoBlocks account</span>
           <strong id="auth-username"></strong>
         </div>
         <button id="logout" type="button">Log out</button>
@@ -109,7 +112,7 @@
 
       <div id="not-verified" class="popup" style="display: none; align-items: flex-start;">
         <span class="title">Connect your Scratch account</span>
-        <span>Sign in with Scratch Auth to use LiveScratch collaboration.</span>
+        <span>Sign in with Scratch Auth to use CoBlocks collaboration.</span>
         <button id="scratch-auth-login" class="button" type="button">Sign in with Scratch Auth</button>
         <span id="scratch-auth-status" role="status" aria-live="polite"></span>
       </div>
@@ -145,7 +148,7 @@
       <hr/>
 
       <div id="links" class="flex-horiz">
-        <a id="link-github" href="#" aria-label="Open LiveScratch on GitHub" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
+        <a id="link-github" href="#" aria-label="Open CoBlocks on GitHub" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.2 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C14.9 4.8 16 5.1 16 5.1c.6 1.6.2 2.9.1 3.2.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z"/></svg>
           <span>GitHub</span>
         </a>

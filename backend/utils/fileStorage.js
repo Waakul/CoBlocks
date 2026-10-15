@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 import { saveRecent } from './recentUsers.js';
 import { isFinalSaving } from '../index.js';
+import { deleteRedundantJson, readRedundantJson, seedAndRecoverDirectory, writeRedundantJson } from './redundantStorage.js';
 
 export const livescratchPath = 'storage/sessions/livescratch';
 export const scratchprojectsPath = 'storage/sessions/scratchprojects';
@@ -22,6 +23,34 @@ if(!fs.existsSync('storage')) {
 }
 fs.mkdirSync('storage/sessions/scratchprojects', { recursive: true });
 fs.mkdirSync('storage/sessions/livescratch', { recursive: true });
+fs.mkdirSync(usersPath, { recursive: true });
+
+const redundantKindForDirectory = dir => {
+    const resolved = path.resolve(dir);
+    if (resolved === path.resolve(livescratchPath)) return 'projects';
+    if (resolved === path.resolve(scratchprojectsPath)) return 'scratchprojects';
+    if (resolved === path.resolve(usersPath)) return 'users';
+    return null;
+};
+
+export function initializeStorageRecovery() {
+    const projects = seedAndRecoverDirectory(livescratchPath, 'projects');
+    const scratchprojects = seedAndRecoverDirectory(scratchprojectsPath, 'scratchprojects');
+    const users = seedAndRecoverDirectory(usersPath, 'users');
+    const recovered = projects.recovered + scratchprojects.recovered + users.recovered;
+    if (recovered) console.warn(`Recovered ${recovered} storage record(s) from redundant copies.`);
+    return { projects, scratchprojects, users };
+}
+
+export function readRecoveryCopy(dir, key, validator) {
+    const kind = redundantKindForDirectory(dir);
+    return kind ? readRedundantJson(kind, key, { validator }) : null;
+}
+
+export function deleteRecoveryCopies(dir, key) {
+    const kind = redundantKindForDirectory(dir);
+    return kind ? deleteRedundantJson(kind, key) : false;
+}
 
 const bannedList = () => {
     try {
@@ -54,6 +83,8 @@ export function saveMapToFolder(obj, dir) {
             temp = `${filename}.${randomUUID()}.tmp`;
             fs.writeFileSync(temp, stringg);
             fs.renameSync(temp, filename);
+            const kind = redundantKindForDirectory(dir);
+            if (kind && !writeRedundantJson(kind, entry[0], stringg)) throw new Error(`Could not create recovery copy for ${kind}/${entry[0]}`);
         } catch (e) {
             if (temp) { try { fs.rmSync(temp); } catch { /* ignored */ } }
             success = false;
@@ -82,7 +113,10 @@ export async function saveMapToFolderAsync(obj, dir) {
         }
         let filename = dir+path.sep+id;
         const temp = `${filename}.${randomUUID()}.tmp`;
-        await fsp.writeFile(temp,stringg).then(() => fsp.rename(temp, filename)).catch(async e=>{success = false;await fsp.rm(temp, { force: true }).catch(() => {});console.error('Error when saving filename:');console.error(e);});
+        await fsp.writeFile(temp,stringg).then(() => fsp.rename(temp, filename)).then(() => {
+            const kind = redundantKindForDirectory(dir);
+            if (kind && !writeRedundantJson(kind, id, stringg)) throw new Error(`Could not create recovery copy for ${kind}/${id}`);
+        }).catch(async e=>{success = false;await fsp.rm(temp, { force: true }).catch(() => {});console.error('Error when saving filename:');console.error(e);});
     }
     return success;
 }

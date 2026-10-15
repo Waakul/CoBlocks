@@ -16,14 +16,14 @@ async function getProjects() {
     if (!Array.isArray(data)) {
         var error = document.createElement('div');
         error.className = 'empty-state';
-        error.textContent = data?.noauth ? 'Sign in to LiveScratch to view your projects.' : 'Projects could not be loaded. Try again shortly.';
+        error.textContent = data?.noauth ? 'Sign in to CoBlocks to view your projects.' : 'Projects could not be loaded. Try again shortly.';
         document.querySelector('.projects').appendChild(error);
         return;
     }
     if (data.length === 0) {
         var span = document.createElement('span');
         span.className = 'empty-state';
-        span.textContent = 'No projects yet. Open one of your Scratch projects and enable LiveScratch to get started.';
+        span.textContent = 'No projects yet. Open one of your Scratch projects and enable CoBlocks to get started.';
         document.querySelector('.projects').appendChild(span);
     }
     data.forEach(function (project) {

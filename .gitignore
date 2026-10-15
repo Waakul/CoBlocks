@@ -3,5 +3,6 @@
 *.pem
 *.DS_Store
 backend/storage
+backend/storage-redundancy
 /debug/
-backend/.env 
+backend/.env

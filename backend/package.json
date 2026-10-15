@@ -1,17 +1,17 @@
 {
-  "name": "livescratch-backend",
+  "name": "coblocks-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend service for CoBlocks real time Scratch collaboration.",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "test": "node --test",
     "start": "pm2 start ./ecosystem.config.cjs",
-    "stop": "pm2 stop LiveScratch",
-    "delete": "pm2 delete LiveScratch"
+    "stop": "pm2 stop CoBlocks",
+    "delete": "pm2 delete CoBlocks"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["scratch", "collaboration", "coblocks"],
+  "author": "Waakul",
   "license": "ISC",
   "dependencies": {
     "@coffeeandfun/google-profanity-words": "^2.1.0",

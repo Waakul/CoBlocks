@@ -22,8 +22,9 @@ header {
   gap: 9px;
   align-self: stretch;
   z-index: 10;
-  background: linear-gradient(100deg, #4C97FF -2.26%, #59C059 135.83%);
-  box-shadow: 0px 0px 102.3px 0px rgba(0, 0, 0, 0.08);
+  background: linear-gradient(120deg, #fffdf7 0%, #ffd86b 100%);
+  border-bottom: 1px solid rgba(20, 38, 77, 0.08);
+  box-shadow: 0 8px 28px rgba(20, 38, 77, 0.10);
 }
 
 header #logo {
@@ -31,7 +32,7 @@ header #logo {
 }
 
 header #title {
-  color: #FFF;
+  color: #14264d;
   font-family: Montserrat;
   font-size: 23.398px;
   font-style: normal;
@@ -40,7 +41,7 @@ header #title {
 }
 
 header #version {
-  color: rgba(255, 255, 255, 0.83);
+  color: rgba(20, 38, 77, 0.72);
   font-family: Montserrat;
   font-size: 15.599px;
   font-style: normal;
@@ -141,23 +142,23 @@ info {
 html { min-height: 100%; }
 body { min-height: 100vh; align-items: stretch; background-attachment: fixed; }
 body, body * { box-sizing: border-box; }
-header { position: sticky; top: 0; min-height: 68px; padding: 10px clamp(18px,4vw,48px); box-shadow: 0 8px 30px rgba(24,65,48,.15); }
+header { position: sticky; top: 0; min-height: 68px; padding: 10px clamp(18px,4vw,48px); box-shadow: 0 8px 30px rgba(20,38,77,.10); }
 header #logo { width: 44px; height: 44px; object-fit: contain; }
 header #title { font-size: 21px; font-weight: 700; }
-header #version { padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.16); font-size: 11px; }
+header #version { padding: 4px 8px; border-radius: 999px; color: #14264d; background: rgba(255,255,255,.52); font-size: 11px; }
 header #switch-theme { right: clamp(18px,4vw,48px); width: 40px; height: 40px; padding: 0; border-radius: 10px; }
 #contents { width: min(1180px,100%); margin: 0 auto; padding: 48px clamp(20px,5vw,64px); gap: 28px; }
 #floating-logo, #floating-logo-back { position: fixed; right: 5vw; top: 120px; opacity: .08; pointer-events: none; }
 .group { gap: 7px; }
-.group .eyebrow { color: #3d9673; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.group .eyebrow { color: #14264d; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .group .title { font-size: clamp(28px,4vw,42px); font-weight: 750; letter-spacing: -.045em; }
 .group info { max-width: 620px; font-size: 15px; line-height: 22px; opacity: .68; }
 .projects { width: 100%; display: grid; grid-template-columns: repeat(auto-fill,minmax(230px,1fr)); gap: 18px; }
-.project { position: relative; width: auto; min-width: 0; margin: 0; padding: 10px; border: 1px solid rgba(67,105,90,.14); border-radius: 16px; background: var(--Sub); box-shadow: 0 8px 28px rgba(24,64,48,.1); transition: transform .18s ease,box-shadow .18s ease,border-color .18s ease; }
-.project:hover { transform: translateY(-4px); border-color: rgba(63,168,121,.42); box-shadow: 0 16px 38px rgba(24,64,48,.16); }
+.project { position: relative; width: auto; min-width: 0; margin: 0; padding: 10px; border: 1px solid rgba(20,38,77,.14); border-radius: 16px; background: var(--Sub); box-shadow: 0 8px 28px rgba(20,38,77,.1); transition: transform .18s ease,box-shadow .18s ease,border-color .18s ease; }
+.project:hover { transform: translateY(-4px); border-color: rgba(255,200,61,.62); box-shadow: 0 16px 38px rgba(20,38,77,.16); }
 .project img { aspect-ratio: 4/3; object-fit: cover; border-radius: 11px; background: rgba(255,255,255,.4); }
 .project .title { margin: 11px 4px 3px; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-details { display: block; margin: 0 4px 12px; min-height: 16px; font-size: 11px; opacity: .62; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.project-action { display: flex; align-items: center; justify-content: center; min-height: 34px; margin: 0 2px 2px; border-radius: 9px; color: #fff; background: linear-gradient(115deg,#3fa879,#4b9fea); font-size: 12px; font-weight: 750; }
+.project-action { display: flex; align-items: center; justify-content: center; min-height: 34px; margin: 0 2px 2px; border: 1px solid rgba(224,168,27,.28); border-radius: 9px; color: #14264d; background: linear-gradient(120deg,#ffd45c,#ffe89a); font-size: 12px; font-weight: 750; }
 .empty-state { grid-column: 1/-1; padding: 34px; border: 1px dashed rgba(83,117,103,.35); border-radius: 16px; background: var(--Sub-Semi); font-size: 15px; line-height: 22px; text-align: center; opacity: .8; }
 @media (max-width: 560px) { #contents { padding-top: 28px; } .projects { grid-template-columns: 1fr; } }

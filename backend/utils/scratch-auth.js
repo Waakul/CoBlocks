@@ -57,13 +57,13 @@ export function setPaths(app, users, sessions) {
         pending.set(state, { redirect, createdAt: Date.now(), status: 'waiting' });
         const loginUrl = new URL('/auth/', SCRATCH_AUTH);
         loginUrl.searchParams.set('redirect', Buffer.from(redirect).toString('base64'));
-        loginUrl.searchParams.set('name', 'LiveScratch');
+        loginUrl.searchParams.set('name', 'CoBlocks');
         res.json({ state, url: loginUrl.href });
     });
 
     app.get('/auth/scratch/callback', async (req, res) => {
         const item = pending.get(req.query.state);
-        if (!item || Date.now() - item.createdAt > TTL || item.status !== 'waiting') return res.status(400).send('This login expired. Please start again from LiveScratch.');
+        if (!item || Date.now() - item.createdAt > TTL || item.status !== 'waiting') return res.status(400).send('This login expired. Please start again from CoBlocks.');
         if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the login.');
         item.status = 'verifying';
         try {
@@ -94,7 +94,7 @@ export function setPaths(app, users, sessions) {
     app.get('/auth/scratch/complete', (req, res) => {
         const item = pending.get(req.query.state);
         if (!item || item.status !== 'complete') return res.status(400).send('This login is incomplete or expired.');
-        res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>LiveScratch login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Signed in to LiveScratch</h1><p>You can close this tab and return to Scratch.</p></body></html>');
+        res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>CoBlocks login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Signed in to CoBlocks</h1><p>You can close this tab and return to Scratch.</p></body></html>');
     });
 
     app.post('/auth/scratch/finish', (req, res) => {
