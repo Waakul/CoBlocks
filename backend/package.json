@@ -10,7 +10,11 @@
     "stop": "pm2 stop CoBlocks",
     "delete": "pm2 delete CoBlocks"
   },
-  "keywords": ["scratch", "collaboration", "coblocks"],
+  "keywords": [
+    "scratch",
+    "collaboration",
+    "coblocks"
+  ],
   "author": "Waakul",
   "license": "ISC",
   "dependencies": {
@@ -26,12 +30,17 @@
     "n-readlines": "^1.0.1",
     "node-cron": "^4.2.1",
     "node-fetch": "^3.2.10",
-    "pm2": "^5.4.3",
+    "pm2": "^7.0.4",
     "sanitize-filename": "^1.6.3",
     "socket.io": "^4.4.1",
     "socket.io-client": "^4.4.1"
   },
   "devDependencies": {
     "eslint": "^9.17.0"
+  },
+  "overrides": {
+    "basic-ftp": "6.2.3",
+    "js-yaml": "4.3.2",
+    "qs": "6.16.1"
   }
 }

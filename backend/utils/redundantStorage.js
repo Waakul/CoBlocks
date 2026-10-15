@@ -50,6 +50,17 @@ function pruneSnapshots(directory, limit) {
     files.slice(limit).forEach(filename => fs.rmSync(path.join(directory, filename), { force: true }));
 }
 
+function nextSnapshotTimestamp(directory) {
+    let latest = 0;
+    try {
+        for (const filename of fs.readdirSync(directory)) {
+            const timestamp = Number(filename.slice(0, 13));
+            if (Number.isSafeInteger(timestamp)) latest = Math.max(latest, timestamp);
+        }
+    } catch { /* first snapshot */ }
+    return String(Math.max(Date.now(), latest + 1)).padStart(13, '0');
+}
+
 export function writeRedundantJson(kind, key, contents, options = {}) {
     const paths = recordPaths(kind, key, options.root);
     if (!paths || !validJson(contents)) return false;
@@ -59,7 +70,7 @@ export function writeRedundantJson(kind, key, contents, options = {}) {
 
     atomicWrite(paths.mirror, serialized);
     if (previous !== serialized) {
-        const timestamp = `${String(Date.now()).padStart(13, '0')}-${randomUUID()}.json`;
+        const timestamp = `${nextSnapshotTimestamp(paths.snapshots)}-${randomUUID()}.json`;
         atomicWrite(path.join(paths.snapshots, timestamp), serialized);
         pruneSnapshots(paths.snapshots, options.snapshotLimit || DEFAULT_SNAPSHOT_LIMIT);
     }
