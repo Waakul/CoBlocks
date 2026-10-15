@@ -558,18 +558,18 @@ body.light-mode #switch-theme {
   background-image: url("../img/icons/light-switch.svg");
   background-repeat: no-repeat;
   background-position: center;
-  background-color: #263b68;
+  background-color: #c5a13d;
   border: 0;
-  box-shadow: inset 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow: inset 1px 0 rgba(88, 65, 17, 0.22);
 }
 
 body.dark-mode #switch-theme {
   background-image: url("../img/icons/dark-switch.svg");
   background-repeat: no-repeat;
   background-position: center;
-  background-color: #263b68;
+  background-color: #c5a13d;
   border: 0;
-  box-shadow: inset 1px 0 rgba(255, 255, 255, 0.22);
+  box-shadow: inset 1px 0 rgba(88, 65, 17, 0.22);
 }
 
 #switch-theme {
@@ -579,8 +579,8 @@ body.dark-mode #switch-theme {
 
 #switch-theme:hover {
   transform: none;
-  background-color: #1b2f59;
-  box-shadow: inset 1px 0 rgba(255, 255, 255, 0.28);
+  background-color: #b18d31;
+  box-shadow: inset 1px 0 rgba(88, 65, 17, 0.3);
 }
 
 #switch-theme:focus-visible {
