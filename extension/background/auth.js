@@ -4,6 +4,7 @@ let verifyError = null;
 let loginTabId = null;
 let loginState = null;
 let loginInFlight = false;
+let credentialResetPromise = null;
 const endVerifyCallbacks = [];
 const startVerifyCallbacks = [];
 
@@ -37,13 +38,69 @@ function storeLivescratchToken(username, token, current = false) {
 }
 
 async function clearCurrentLsToken() {
+    const rejectedToken = currentLsToken;
+    const stored = await chrome.storage.local.get(null);
+    const matchingTokenKeys = Object.entries(stored)
+        .filter(([key, value]) => /^(lsToken|blToken)\./.test(key) && value === rejectedToken)
+        .map(([key]) => key);
     if (uname && uname !== '*') {
-        await chrome.storage.local.remove([
+        matchingTokenKeys.push(
             `lsToken.${uname.toLowerCase()}`,
             `blToken.${uname.toLowerCase()}`,
-        ]);
+        );
     }
+    if (matchingTokenKeys.length) await chrome.storage.local.remove([...new Set(matchingTokenKeys)]);
     currentLsToken = null;
+}
+
+async function clearBackendAuthCookies() {
+    try {
+        const origin = new URL(apiUrl);
+        const cookies = await chrome.cookies.getAll({ url: origin.href });
+        const ownedCookies = cookies.filter(cookie => /^(coblocks|livescratch|blocklive)[._-]?(auth|session|token)/i.test(cookie.name));
+        await Promise.all(ownedCookies.map(cookie => chrome.cookies.remove({
+            url: `${cookie.secure ? 'https:' : 'http:'}//${cookie.domain.replace(/^\./, '')}${cookie.path}`,
+            name: cookie.name,
+            storeId: cookie.storeId,
+        })));
+    } catch (error) {
+        console.warn('Could not clear legacy CoBlocks backend cookies:', error);
+    }
+}
+
+async function clearRejectedCredentials(reason = 'Your CoBlocks login expired. Please sign in again.') {
+    if (credentialResetPromise) return credentialResetPromise;
+    credentialResetPromise = (async () => {
+        await Promise.all([
+            clearCurrentLsToken(),
+            clearBackendAuthCookies(),
+            chrome.storage.session.remove('scratchAuthLogin'),
+        ]);
+        verifying = false;
+        verifyError = reason;
+        loginInFlight = false;
+        loginTabId = null;
+        loginState = null;
+        try {
+            LIVESCRATCH.onLoggedOut?.();
+        } catch (error) {
+            console.warn('Could not leave active CoBlocks sessions after credential rejection:', error);
+        }
+        endVerifyCallbacks.splice(0).forEach(callback => callback?.(false, reason));
+    })().finally(() => { credentialResetPromise = null; });
+    return credentialResetPromise;
+}
+
+async function authenticatedFetch(input, init = {}) {
+    const response = await fetch(input, { ...init, credentials: 'omit' });
+    try {
+        const contentType = response.headers.get('content-type') || '';
+        const body = contentType.includes('application/json') ? await response.clone().json() : null;
+        if (body?.noauth === true) await clearRejectedCredentials();
+    } catch (error) {
+        console.warn('Could not inspect a CoBlocks authentication response:', error);
+    }
+    return response;
 }
 
 async function logoutLivescratch({ waitForServer = true } = {}) {

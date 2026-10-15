@@ -52,7 +52,8 @@ function leaveId(id, div) {
 }
 
 function sendLeave(scratchId, lsId) {
-    lsMySTuff.splice(lsMySTuff.findIndex(item => (item.scratchId == scratchId)), 1);
+    const index = lsMySTuff.findIndex(item => item.scratchId == scratchId);
+    if (index !== -1) lsMySTuff.splice(index, 1);
     if (lsId) {
         chrome.runtime.sendMessage(exId, { meta: 'leaveLSId', lsId });
     } else {
@@ -75,6 +76,10 @@ function sanitize(string) {
     return string.replace(reg, (match) => (map[match]));
 }
 
+function validScratchUsername(username) {
+    return typeof username === 'string' && /^[a-zA-Z0-9_-]{3,20}$/.test(username);
+}
+
 function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, online) {
     scratchId = sanitize(scratchId);
     title = sanitize(title);
@@ -82,7 +87,10 @@ function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, 
     lastModBy = sanitize(lastModBy);
 
     let gunkId = Math.random().toString(36).substring(2);
-    generateActiveUsersPanel(online).then(panel => document.getElementById(gunkId).innerHTML = panel);
+    generateActiveUsersPanel(online).then(panel => {
+        const container = document.getElementById(gunkId);
+        if (container) container.innerHTML = panel;
+    });
 
     return `
     <div class="media-item-content not-shared">
@@ -103,7 +111,7 @@ function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, 
       <a href="/projects/${scratchId}/#editor" data-control="edit" class="media-control-edit small button grey">
 	     
       <span>See inside</span>
-      <div class="activeContainer" id=${gunkId}></div>
+      <div class="activeContainer" id="${gunkId}"></div>
 
       </a>
 
@@ -111,20 +119,24 @@ function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, 
 
       </div>
       <div class="media-action">
-	      <div><a class="media-trash" style="color:rgb(88, 193, 152)" onclick="leaveId(${scratchId},this.parentElement.parentElement.parentElement.parentElement);sendLeave(${scratchId},${lsId})">${projectExists ? 'Unlink' : 'Leave'}</a></div>
+		      <div><a class="media-trash" style="color:rgb(88, 193, 152)">${projectExists ? 'Unlink' : 'Leave'}</a></div>
       </div>
     </div>`;
 }
 
 
 async function generateActiveUsersPanel(active) {
-    if (active.length > 0) {
-        active.forEach(username => getUserInfo(username).then(info => document.querySelectorAll(`.${username}`).forEach(elem => elem.style.backgroundImage = `url(${info.pic})`)));
+    const safeUsers = Array.isArray(active) ? active.filter(validScratchUsername) : [];
+    if (safeUsers.length > 0) {
+        safeUsers.forEach(username => getUserInfo(username).then(info => {
+            if (!info?.pic) return;
+            document.querySelectorAll(`.${username}`).forEach(elem => elem.style.backgroundImage = `url(${info.pic})`);
+        }));
         return `
       <div class="activeContainer">
 
-        ${active.map(username =>
-        `<div class="onlineBubble ${username}" style="background-color: white; --bubbleUsername:'${username}'"></div>`,
+        ${safeUsers.map(username =>
+        `<div class="onlineBubble ${username}" style="background-color: white; --bubbleUsername:'${sanitize(username)}'"></div>`,
     )
         .join('\n')}
      
@@ -314,13 +326,17 @@ function addProject(projectObj, projectExists) {
     let newBox = document.createElement('li');
     newBox.className = 'ls-project-row';
     newBox.innerHTML = getbox(projectObj.lsId, projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online);
+    newBox.querySelector('.media-trash')?.addEventListener('click', () => {
+        leaveId(projectObj.scratchId, newBox);
+        sendLeave(projectObj.scratchId, projectObj.lsId);
+    });
     document.querySelector('ul.media-list').insertBefore(newBox, document.querySelector('ul.media-list').firstChild);
 }
 
 usersCache = {};
 
 async function getUserInfo(username) {
-    if (!username) { return; }
+    if (!validScratchUsername(username)) { return null; }
     if (username?.toLowerCase() in usersCache && usersCache[username?.toLowerCase()]?.pk) { return usersCache[username?.toLowerCase()]; }
 
     let res;

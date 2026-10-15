@@ -274,8 +274,8 @@ document.querySelector('#scratch-auth-login')?.addEventListener('click', async (
 document.getElementById('link-github').onclick = () => {
     chrome.tabs.create({ url: 'https://github.com/Waakul/LiveScratch' });
 };
-document.getElementById('link-uptime').onclick = () => {
-    chrome.tabs.create({ url: 'https://status.uptime-monitor.io/67497373f98a6334aaea672d' });
+document.getElementById('link-discord').onclick = () => {
+    chrome.tabs.create({ url: 'https://discord.gg/mhDzvrX4RD' });
 };
 document.getElementById('link-donate').onclick = () => {
     chrome.tabs.create({ url: 'https://ko-fi.com/waakul' });

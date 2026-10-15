@@ -45,6 +45,18 @@ const configuredApiRateLimit = Number(process.env.API_RATE_LIMIT || 300);
 const API_RATE_LIMIT = Number.isFinite(configuredApiRateLimit) && configuredApiRateLimit > 0 ? configuredApiRateLimit : 300;
 const validProjectId = value => /^\d{1,20}$/.test(String(value));
 
+function requireProjectAccess(res, username, token, projectId) {
+    if (!authenticate(username, token)) {
+        res.status(401).send({ noauth: true });
+        return false;
+    }
+    if (!fullAuthenticate(username, token, projectId)) {
+        res.status(403).send({ noaccess: true });
+        return false;
+    }
+    return true;
+}
+
 app.use((req, res, next) => {
     const now = Date.now();
     const key = req.ip;
@@ -120,7 +132,7 @@ new initSockets(ioHttp, sessionManager, userManager);
 // --- 3. EXPRESS ROUTES ---
 
 api.post('/newProject/:scratchId/:owner', (req, res) => {
-    if (!authenticate(req.params.owner, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.owner, req.headers.authorization)) return res.status(401).send({ noauth: true });
     if (!validProjectId(req.params.scratchId) || sanitize(req.params.scratchId.toString()) === '') {
         return res.send({ err: 'invalid scratch id' });
     }
@@ -141,6 +153,7 @@ api.post('/newProject/:scratchId/:owner', (req, res) => {
 });
 
 api.get('/lsId/:scratchId/:uname', (req, res) => {
+    if (!authenticate(req.params.uname, req.headers.authorization)) return res.status(401).send({ noauth: true });
     const entry = sessionManager.getScratchProjectEntry(req.params.scratchId);
     const lsId = entry?.lsId;
     if (!lsId) return res.send(null);
@@ -158,12 +171,12 @@ api.get('/scratchIdInfo/:scratchId', (req, res) => {
     if (!validProjectId(req.params.scratchId)) return res.status(400).send({ err: 'Invalid Scratch project ID.' });
     const entry = sessionManager.getScratchProjectEntry(req.params.scratchId);
     if (!entry) return res.status(404).send({ err: 'No CoBlocks project is linked to this Scratch project.' });
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, entry.lsId)) return res.status(403).send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, entry.lsId)) return;
     res.send(entry);
 });
 
 api.get('/projectTitle/:id', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.id)) return;
 
     const project = sessionManager.getProject(req.params.id);
     if (!project) {
@@ -174,7 +187,7 @@ api.get('/projectTitle/:id', (req, res) => {
 });
 
 api.post('/projectSavedJSON/:lsId/:version', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.lsId)) return;
     if (!isScratchProjectJson(req.body)) return res.status(400).send({ err: 'Invalid Scratch project data.' });
     const version = Number(req.params.version);
     if (!Number.isFinite(version) || version < -1) return res.status(400).send({ err: 'Invalid project version.' });
@@ -193,7 +206,7 @@ api.get('/projectJSON/:lsId', (req, res) => {
     if (!authenticate(req.query.username, req.headers.authorization)) return res.status(401).send({ noauth: true });
     const project = sessionManager.getProject(req.params.lsId);
     if (!project) return res.sendStatus(404);
-    if (!sessionManager.canUserAccessProject(req.query.username, req.params.lsId)) return res.status(403).send({ noauth: true });
+    if (!sessionManager.canUserAccessProject(req.query.username, req.params.lsId)) return res.status(403).send({ noaccess: true });
     
     res.send({ json: project.projectJson, version: project.jsonVersion });
 });
@@ -201,7 +214,7 @@ api.get('/projectJSON/:lsId', (req, res) => {
 api.use('/html', express.static('static'));
 
 api.get('/changesSince/:id/:version', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.id)) return;
 
     const project = sessionManager.getProject(req.params.id);
     if (!project) return res.send([]);
@@ -238,13 +251,13 @@ function ListToObj(list) {
 }
 
 api.get('/chat/:id', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.id)) return;
     const project = sessionManager.getProject(req.params.id);
     res.send(project ? project.getChat() : []);
 });
 
 api.get('/backpack/:id', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.status(403).send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.id)) return;
     const project = sessionManager.getProject(req.params.id);
     if (!project) return res.status(404).send({ err: 'Project not found.' });
     res.send(normalizeBackpack(project));
@@ -252,7 +265,7 @@ api.get('/backpack/:id', (req, res) => {
 
 api.post('/backpack/:id', (req, res) => {
     const username = req.headers.uname;
-    if (!fullAuthenticate(username, req.headers.authorization, req.params.id)) return res.status(403).send({ noauth: true });
+    if (!requireProjectAccess(res, username, req.headers.authorization, req.params.id)) return;
     const project = sessionManager.getProject(req.params.id);
     if (!project) return res.status(404).send({ err: 'Project not found.' });
     const backpack = normalizeBackpack(project);
@@ -276,7 +289,7 @@ api.post('/backpack/:id', (req, res) => {
 
 api.delete('/backpack/:id/:itemId', (req, res) => {
     const username = req.headers.uname;
-    if (!fullAuthenticate(username, req.headers.authorization, req.params.id)) return res.status(403).send({ noauth: true });
+    if (!requireProjectAccess(res, username, req.headers.authorization, req.params.id)) return;
     const project = sessionManager.getProject(req.params.id);
     if (!project) return res.status(404).send({ err: 'Project not found.' });
     const backpack = normalizeBackpack(project);
@@ -336,7 +349,7 @@ api.get('/dau/:days', (req, res) => {
 
 api.put('/linkScratch/:scratchId/:lsId/:owner', (req, res) => {
     if (!validProjectId(req.params.scratchId) || !validProjectId(req.params.lsId)) return res.status(400).send({ err: 'Invalid project ID.' });
-    if (!fullAuthenticate(req.params.owner, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.params.owner, req.headers.authorization, req.params.lsId)) return;
     const result = sessionManager.linkProject(req.params.lsId, req.params.scratchId, req.params.owner, 0);
     if (!result?.ok) return res.status(result?.conflict ? 409 : 400).send({ err: result?.error || 'Could not link project.' });
     sessionManager.persistProject(req.params.lsId);
@@ -349,7 +362,7 @@ api.get('/userExists/:username', (req, res) => {
 
 api.put('/privateMe/:username/:private', (req, res) => {
     const unameClean = sanitize(req.params.username);
-    if (!authenticate(unameClean, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(unameClean, req.headers.authorization)) return res.status(401).send({ noauth: true });
     userManager.getUser(unameClean).privateMe = req.params.private === 'true';
     userManager.persistUser(unameClean);
     res.sendStatus(200);
@@ -357,16 +370,19 @@ api.put('/privateMe/:username/:private', (req, res) => {
 
 api.get('/privateMe/:username', (req, res) => {
     const unameClean = sanitize(req.params.username);
-    if (!authenticate(unameClean, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(unameClean, req.headers.authorization)) return res.status(401).send({ noauth: true });
     res.send(userManager.getUser(unameClean).privateMe);
 });
 
 api.get('/userRedirect/:scratchId/:username', (req, res) => {
-    const project = sessionManager.getScratchToLSProject(req.params.scratchId);
-    if (!fullAuthenticate(req.params.username, req.headers.authorization, project?.id)) {
-        return res.send({ noauth: true, goto: 'none' });
+    if (!authenticate(req.params.username, req.headers.authorization)) {
+        return res.status(401).send({ noauth: true, goto: 'none' });
     }
+    const project = sessionManager.getScratchToLSProject(req.params.scratchId);
     if (!project) return res.send({ goto: 'none' });
+    if (!fullAuthenticate(req.params.username, req.headers.authorization, project.id)) {
+        return res.status(403).send({ noaccess: true, goto: 'none' });
+    }
      
     const ownedProject = project.getOwnersProject(req.params.username);
     if (ownedProject) {
@@ -377,7 +393,7 @@ api.get('/userRedirect/:scratchId/:username', (req, res) => {
 });
 
 api.get('/active/:lsId', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.lsId)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.lsId)) return;
 
     const activeProj = sessionManager.getProject(req.params.lsId);
     const usernames = activeProj?.session.getConnectedUsernames();
@@ -397,7 +413,7 @@ api.get('/', (req, res) => {
 });
 
 api.post('/friends/:user/:friend', (req, res) => {
-    if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.user, req.headers.authorization)) return res.status(401).send({ noauth: true });
     if (!userManager.userExists(req.params.friend)) return res.sendStatus(404);
 
     userManager.befriend(req.params.user, req.params.friend);
@@ -406,20 +422,20 @@ api.post('/friends/:user/:friend', (req, res) => {
 });
 
 api.delete('/friends/:user/:friend', (req, res) => {
-    if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.user, req.headers.authorization)) return res.status(401).send({ noauth: true });
     userManager.unbefriend(req.params.user, req.params.friend);
     userManager.persistUser(req.params.user);
     res.send({ success: 'Succesfully unfriended!' });
 });
 
 api.get('/friends/:user', (req, res) => {
-    if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.user, req.headers.authorization)) return res.status(401).send({ noauth: true });
     recordPopup(req.params.user);
     res.send(userManager.getUser(req.params.user)?.friends);
 });
 
 api.get('/userProjects/:user', (req, res) => {
-    if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.user, req.headers.authorization)) return res.status(401).send({ noauth: true });
     const user = userManager.findUser(req.params.user);
     const { authorizedIds, removedIds } = reconcileProjectReferences(req.params.user, user, id => sessionManager.getProject(id));
     if (removedIds.length) userManager.persistUser(req.params.user);
@@ -428,7 +444,7 @@ api.get('/userProjects/:user', (req, res) => {
 });
 
 api.get('/userProjectsScratch/:user', (req, res) => {
-    if (!authenticate(req.params.user, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.user, req.headers.authorization)) return res.status(401).send({ noauth: true });
 
     const user = userManager.findUser(req.params.user);
     const { authorizedIds: livescratchIds, removedIds } = reconcileProjectReferences(
@@ -460,7 +476,8 @@ api.get('/userProjectsScratch/:user', (req, res) => {
 
 api.put('/leaveScratchId/:scratchId/:username', (req, res) => {
     const project = sessionManager.getScratchToLSProject(req.params.scratchId);
-    if (!project || !fullAuthenticate(req.params.username, req.headers.authorization, project.id)) return res.send({ noauth: true });
+    if (!project) return res.status(404).send({ err: 'Project not found.' });
+    if (!requireProjectAccess(res, req.params.username, req.headers.authorization, project.id)) return;
     
     const previousOwner = project.owner;
     userManager.unShare(req.params.username, project.id);
@@ -476,9 +493,10 @@ api.put('/leaveScratchId/:scratchId/:username', (req, res) => {
 });
 
 api.put('/leaveLSId/:lsId/:username', (req, res) => {
-    if (!authenticate(req.params.username, req.headers.authorization)) return res.send({ noauth: true });
+    if (!authenticate(req.params.username, req.headers.authorization)) return res.status(401).send({ noauth: true });
     const project = sessionManager.getProject(req.params.lsId);
-    if (!project || !sessionManager.canUserAccessProject(req.params.username, req.params.lsId)) return res.status(403).send({ noauth: true });
+    if (!project) return res.status(404).send({ err: 'Project not found.' });
+    if (!sessionManager.canUserAccessProject(req.params.username, req.params.lsId)) return res.status(403).send({ noaccess: true });
     
     const previousOwner = project.owner;
     userManager.unShare(req.params.username, req.params.lsId);
@@ -494,7 +512,7 @@ api.put('/leaveLSId/:lsId/:username', (req, res) => {
 });
 
 api.get('/share/:id', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.id)) return;
 
     const project = sessionManager.getProject(req.params.id);
     let list = project?.sharedWith;
@@ -505,7 +523,7 @@ api.get('/share/:id', (req, res) => {
 });
 
 api.put('/share/:id/:to/:from', (req, res) => {
-    if (!fullAuthenticate(req.params.from, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.params.from, req.headers.authorization, req.params.id)) return;
 
     const project = sessionManager.getProject(req.params.id);
     if (!userOwnsProject(project, req.params.from)) return res.status(403).send({ err: 'Only the project owner can add collaborators.' });
@@ -525,7 +543,7 @@ api.put('/share/:id/:to/:from', (req, res) => {
 });
 
 api.put('/unshare/:id/:to/', (req, res) => {
-    if (!fullAuthenticate(req.headers.uname, req.headers.authorization, req.params.id)) return res.send({ noauth: true });
+    if (!requireProjectAccess(res, req.headers.uname, req.headers.authorization, req.params.id)) return;
 
     const project = sessionManager.getProject(req.params.id);
     if (!userOwnsProject(project, req.headers.uname)) return res.status(403).send({ err: 'Only the project owner can remove collaborators.' });

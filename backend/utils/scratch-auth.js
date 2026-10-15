@@ -64,7 +64,7 @@ export function setPaths(app, users, sessions) {
     app.get('/auth/scratch/callback', async (req, res) => {
         const item = pending.get(req.query.state);
         if (!item || Date.now() - item.createdAt > TTL || item.status !== 'waiting') return res.status(400).send('This login expired. Please start again from CoBlocks.');
-        if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the login.');
+        if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the CoBlocks login.');
         item.status = 'verifying';
         try {
             const url = new URL('/api/auth/verifyToken', SCRATCH_AUTH);
@@ -74,7 +74,7 @@ export function setPaths(app, users, sessions) {
             const data = await response.json();
             if (data.valid !== true || data.redirect !== item.redirect || !validUsername(data.username)) {
                 pending.delete(req.query.state);
-                return res.status(403).send('Scratch Auth could not verify this login.');
+                return res.status(403).send('Scratch Auth could not verify this CoBlocks login.');
             }
             const user = userManager.getUser(data.username);
             user.verified = true;
@@ -87,13 +87,13 @@ export function setPaths(app, users, sessions) {
         } catch (error) {
             pending.delete(req.query.state);
             console.error('Scratch Auth verification failed:', error);
-            res.status(503).send('Scratch Auth is temporarily unavailable. Please try again.');
+            res.status(503).send('CoBlocks could not reach Scratch Auth. Please try again.');
         }
     });
 
     app.get('/auth/scratch/complete', (req, res) => {
         const item = pending.get(req.query.state);
-        if (!item || item.status !== 'complete') return res.status(400).send('This login is incomplete or expired.');
+        if (!item || item.status !== 'complete') return res.status(400).send('This CoBlocks login is incomplete or expired.');
         res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>CoBlocks login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Signed in to CoBlocks</h1><p>You can close this tab and return to Scratch.</p></body></html>');
     });
 

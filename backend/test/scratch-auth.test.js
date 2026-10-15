@@ -33,12 +33,16 @@ test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', 
     };
     setPaths(app, userManager, { canUserAccessProject: (_username, id) => id === 'owned' });
     assert.equal(authenticate('Alice', 'test-secret'), false);
+    assert.equal(authenticate(undefined, 'test-secret'), false);
+    assert.equal(authenticate('Alice', undefined), false);
+    assert.equal(authenticate('Alice', ''), false);
     assert.equal(fullAuthenticate('Alice', 'test-secret', 'owned'), false);
 
     const start = response();
     routes.get('POST /auth/scratch/start')({ ip: 'test', body: {} }, start);
     assert.equal(start.statusCode, 200);
     const { state, url } = start.body;
+    assert.equal(new URL(url).searchParams.get('name'), 'CoBlocks');
     const redirect = Buffer.from(new URL(url).searchParams.get('redirect'), 'base64').toString();
     assert.equal(redirect, `https://livescratchapi.waakul.com/apiv2/auth/scratch/callback?state=${state}`);
 
@@ -54,6 +58,7 @@ test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', 
         routes.get('POST /auth/scratch/finish')({ body: { state } }, finish);
         assert.equal(finish.body.username, 'Alice');
         assert.equal(authenticate('Alice', finish.body.token), true);
+        assert.equal(authenticate('Mallory', finish.body.token), false);
         assert.equal(fullAuthenticate('Alice', finish.body.token, 'owned'), true);
         assert.equal(fullAuthenticate('Alice', finish.body.token, 'other'), false);
 

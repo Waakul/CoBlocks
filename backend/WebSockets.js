@@ -1,7 +1,7 @@
 import { Filter } from './utils/profanity-filter.js';
 import { postText } from './utils/discord-webhook.js';
 import { addRecent} from './utils/recentUsers.js';
-import {fullAuthenticate} from './utils/scratch-auth.js';
+import {authenticate, fullAuthenticate} from './utils/scratch-auth.js';
 import * as fileStorageUtils from './utils/fileStorage.js';
 const admin = JSON.parse(process.env.ADMIN || '[]').map(name => String(name).toLowerCase());
 
@@ -14,28 +14,30 @@ export default class initSockets {
 
         this.messageHandlers = {
             'joinSession':(data,client)=>{
-                if(!fullAuthenticate(data.username,data.token,data.id)) {client.send({noauth:true}); return;}
+                if(!this.requireProjectAccess(data.username,data.token,data.id,client)) return;
 
                 if (!this.sessionManager.join(client,data.id,data.username)) { client.send({noauth:true}); return; }
                 if(data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
             },'joinSessions':(data,client)=>{
                 if (!Array.isArray(data.ids)) return;
+                if (!authenticate(data.username, data.token)) { client.send({ noauth: true }); return; }
+                let joined = false;
                 data.ids.slice(0, 50).forEach(id => {
-                    if (fullAuthenticate(data.username, data.token, id)) this.sessionManager.join(client, id, data.username);
+                    if (fullAuthenticate(data.username, data.token, id) && this.sessionManager.join(client, id, data.username)) joined = true;
                 });
-                if(data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
+                if(joined && data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
             },
             'leaveSession':(data,client)=>{
                 this.sessionManager.leave(client,data.id);
             },
             'projectChange':(data,client,callback)=>{
-                if(!fullAuthenticate(data.username,data.token,data.lsId)) {client.send({noauth:true}); return;}
+                if(!this.requireProjectAccess(data.username,data.token,data.lsId,client)) return;
                 if (!this.socketJoinedAs(client, data.lsId, data.username)) { client.send({noauth:true}); return; }
                 this.sessionManager.projectChange(data.lsId,data,client);
                 if (typeof callback === 'function') callback(this.sessionManager.getVersion(data.lsId));
             },
             'setTitle':(data,client)=>{
-                if(!fullAuthenticate(data.username,data.token,data.lsId)) {client.send({noauth:true}); return;}
+                if(!this.requireProjectAccess(data.username,data.token,data.lsId,client)) return;
                 if (!this.socketJoinedAs(client, data.lsId, data.username)) { client.send({noauth:true}); return; }
                 let project = this.sessionManager.getProject(data.lsId);
                 if(!project) {return;}
@@ -56,14 +58,15 @@ export default class initSockets {
             },
             'chat': async (data,client)=>{
                 const BROADCAST_KEYWORD = 'toall ';
-    
+
+                if (!data.msg?.msg || typeof data.msg.msg !== 'object') return;
                 delete data.msg.msg.linkify;
-                let text = String(data.msg.msg.text);
+                let text = String(data.msg.msg.text ?? '').slice(0, 2000);
                 let sender = data.msg.msg.sender;
                 let project = this.sessionManager.getProject(data.lsId);
-                if (!data.msg?.msg) return;
-                if(!fullAuthenticate(sender,data.token,data.lsId,true)) {client.send({noauth:true}); return;}
+                if(!this.requireProjectAccess(sender,data.token,data.lsId,client)) return;
                 if (!this.socketJoinedAs(client, data.lsId, sender)) { client.send({noauth:true}); return; }
+                data.msg.msg.text = text;
                 if(admin.includes(sender?.toLowerCase()) && text.startsWith(BROADCAST_KEYWORD)) {
                     let broadcast=text.slice(BROADCAST_KEYWORD.length);
                     console.log(`broadcasting message to all users: "${broadcast}" [${sender}]`);
@@ -103,6 +106,18 @@ export default class initSockets {
     socketJoinedAs(client, projectId, username) {
         const member = this.sessionManager.getProject(projectId)?.session.getClientFromSocket(client);
         return !!member && String(member.username).toLowerCase() === String(username).toLowerCase();
+    }
+
+    requireProjectAccess(username, token, projectId, client) {
+        if (!authenticate(username, token)) {
+            client.send({ noauth: true });
+            return false;
+        }
+        if (!fullAuthenticate(username, token, projectId)) {
+            client.send({ noaccess: true, id: projectId });
+            return false;
+        }
+        return true;
     }
 
     onSocketConnection(client) {

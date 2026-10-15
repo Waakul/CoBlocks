@@ -150,9 +150,9 @@ loadUrl().then(()=>{
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.meta === 'getAPI-URL') {
         sendResponse({apiURL: apiUrl});
+        return false;
     }
-
-    return true;
+    return false;
 });
 
 /// DECS
@@ -231,7 +231,7 @@ async function backgroundScript() {
         if (!!id && tab.id in newProjects) {
             let lsId = newProjects[tab.id];
             delete newProjects[tab.id];
-            fetch(`${apiUrl}/linkScratch/${id}/${lsId}/${uname}`, {
+            authenticatedFetch(`${apiUrl}/linkScratch/${id}/${lsId}/${uname}`, {
                 method: 'PUT',
                 headers: { authorization: currentLsToken },
             }); // link scratch project with api
@@ -247,7 +247,7 @@ async function backgroundScript() {
 
         // dont redirect if is not /projects/id/...
         if (!id) { return false; }
-        let info = await (await fetch(apiUrl + `/userRedirect/${id}/${uname}`, { headers: { authorization: currentLsToken } })).json();
+        let info = await (await authenticatedFetch(apiUrl + `/userRedirect/${id}/${uname}`, { headers: { authorization: currentLsToken } })).json();
         // dont redirect if scratch id is not associated with ls project
         if (info.goto == 'none') { return false; }
         // dont redirect if already on project
@@ -296,6 +296,10 @@ async function backgroundScript() {
     });
     socket.on('message', (data) => {
         console.log('message', data);
+        if (data?.noauth === true) {
+            clearRejectedCredentials().catch(error => console.error('Could not clear rejected CoBlocks credentials:', error));
+            return;
+        }
         if (data.type == 'projectChange') {
             if (data.version) { projects[data.lsId]?.setVersion(data.version - 1); }
             data.msg.version = data.version;
@@ -414,6 +418,10 @@ async function backgroundScript() {
 
     // Connections to scratch editor instances
     chrome.runtime.onConnectExternal.addListener(function (port) {
+        if (!isTrustedScratchSender(port.sender)) {
+            port.disconnect();
+            return;
+        }
         port.name = ++lastPortId;
         ports.push(port);
 
@@ -525,12 +533,13 @@ async function backgroundScript() {
     // Proxy project update messages
     chrome.runtime.onMessageExternal.addListener(
         function (request, sender, sendResponse) {
+            if (!isTrustedScratchSender(sender)) return false;
             (async () => {
                 console.log('external message:', request.meta);
                 if (request.meta == 'getLsId') {
                     if (!request.scratchId || request.scratchId == '.') { sendResponse(''); return; }
                     try {
-                        const response = await fetch(`${apiUrl}/lsId/${request.scratchId}/${uname}`, { headers: { authorization: currentLsToken } });
+                        const response = await authenticatedFetch(`${apiUrl}/lsId/${request.scratchId}/${uname}`, { headers: { authorization: currentLsToken } });
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const serverId = (await response.text()).replaceAll('"', '');
                         if (serverId && serverId !== 'null') {
@@ -545,7 +554,7 @@ async function backgroundScript() {
                     //   sendResponse(await (await fetch(`${apiUrl}/projectInpoint/${request.lsId}`)).json())
                 } else if (request.meta == 'getJson') {
                     try {
-                        const response = await fetch(`${apiUrl}/projectJSON/${request.lsId}?username=${uname}`, { headers: { authorization: currentLsToken } });
+                        const response = await authenticatedFetch(`${apiUrl}/projectJSON/${request.lsId}?username=${uname}`, { headers: { authorization: currentLsToken } });
                         const data = await response.json().catch(() => null);
                         if (data?.noauth) { sendResponse({ err: 'Your CoBlocks login expired.' }); return; }
                         if (!response.ok || !data || !isValidProjectJson(data.json)) throw new Error(`Invalid server project response (${response.status})`);
@@ -560,7 +569,7 @@ async function backgroundScript() {
                             : { err: 'The project is unavailable and no valid local recovery snapshot exists.' });
                     }
                 } else if (request.meta == 'getChanges') {
-                    sendResponse(await (await fetch(`${apiUrl}/changesSince/${request.lsId}/${request.version}`, { headers: { authorization: currentLsToken, uname } })).json());
+                    sendResponse(await (await authenticatedFetch(`${apiUrl}/changesSince/${request.lsId}/${request.version}`, { headers: { authorization: currentLsToken, uname } })).json());
                 } else if (request.meta == 'getUsername') {
                     sendResponse(uname);
                 } else if (request.meta == 'getUsernamePlus') {
@@ -571,16 +580,16 @@ async function backgroundScript() {
                     tabCallbacks[sender.tab.id] = sendResponse;
                 } else if (request.meta == 'projectSaved') {
                     // {meta:'projectSaved',lsId,scratchId,version:lsVersion}
-                    fetch(`${apiUrl}/projectSaved/${request.scratchId}/${request.version}`, { method: 'POST', headers: { authorization: currentLsToken } });
+                    authenticatedFetch(`${apiUrl}/projectSaved/${request.scratchId}/${request.version}`, { method: 'POST', headers: { authorization: currentLsToken } });
                 } else if (request.meta == 'projectSavedJSON') {
                     await saveLocalProjectSnapshot(request.lsId, request.scratchId, request.json, request.version).catch(error => console.error('Could not save local project recovery snapshot:', error));
-                    fetch(`${apiUrl}/projectSavedJSON/${request.lsId}/${request.version}`, { method: 'POST', body: request.json, headers: { 'Content-Type': 'application/json', authorization: currentLsToken, uname } }).catch(error => console.error('Could not save project to the CoBlocks server:', error));
+                    authenticatedFetch(`${apiUrl}/projectSavedJSON/${request.lsId}/${request.version}`, { method: 'POST', body: request.json, headers: { 'Content-Type': 'application/json', authorization: currentLsToken, uname } }).catch(error => console.error('Could not save project to the CoBlocks server:', error));
                 } else if (request.meta == 'cacheProjectLocally') {
                     sendResponse({ ok: await saveLocalProjectSnapshot(request.lsId, request.scratchId, request.json, request.version).catch(error => { console.error('Could not update local project recovery snapshot:', error); return false; }) });
                 } else if (request.meta == 'myStuff') {
-                    sendResponse(await (await fetch(`${apiUrl}/userProjectsScratch/${await makeSureUsernameExists()}`, { headers: { authorization: currentLsToken } })).json());
+                    sendResponse(await (await authenticatedFetch(`${apiUrl}/userProjectsScratch/${await makeSureUsernameExists()}`, { headers: { authorization: currentLsToken } })).json());
                 } else if (request.meta == 'create') {
-                    const result = await (await fetch(`${apiUrl}/newProject/${request.scratchId}/${await refreshUsername()}?title=${encodeURIComponent(request.title)}`,
+                    const result = await (await authenticatedFetch(`${apiUrl}/newProject/${request.scratchId}/${await refreshUsername()}?title=${encodeURIComponent(request.title)}`,
                         {
                             method: 'POST',
                             body: request.json,
@@ -589,26 +598,26 @@ async function backgroundScript() {
                     if (result?.id) await saveLocalProjectSnapshot(result.id, request.scratchId, request.json, 0).catch(error => console.error('Could not create local project recovery snapshot:', error));
                     sendResponse(result);
                 } else if (request.meta == 'shareWith') {
-                    const response = await fetch(`${apiUrl}/share/${request.id}/${request.username}/${uname}?pk=${request.pk}`, {
+                    const response = await authenticatedFetch(`${apiUrl}/share/${request.id}/${request.username}/${uname}?pk=${request.pk}`, {
                         method: 'PUT',
                         headers: { authorization: currentLsToken },
                     });
                     const data = await response.json().catch(() => ({}));
                     sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : null) });
                 } else if (request.meta == 'unshareWith') {
-                    const response = await fetch(`${apiUrl}/unshare/${request.id}/${request.user}`, {
+                    const response = await authenticatedFetch(`${apiUrl}/unshare/${request.id}/${request.user}`, {
                         method: 'PUT',
                         headers: { authorization: currentLsToken, uname },
                     });
                     const data = await response.json().catch(() => ({}));
                     sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : null) });
                 } else if (request.meta == 'getShared') {
-                    const response = await fetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentLsToken, uname } });
+                    const response = await authenticatedFetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentLsToken, uname } });
                     const data = await response.json();
                     sendResponse(response.ok && !data.noauth ? data : { error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load collaborators.') });
                 } else if (request.meta == 'getBackpack') {
                     try {
-                        const response = await fetch(`${apiUrl}/backpack/${request.id}`, { headers: { authorization: currentLsToken, uname } });
+                        const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, { headers: { authorization: currentLsToken, uname } });
                         const data = await response.json().catch(() => ({}));
                         sendResponse(response.ok ? { ok: true, items: data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load the shared backpack.') });
                     } catch (error) {
@@ -617,7 +626,7 @@ async function backgroundScript() {
                     }
                 } else if (request.meta == 'addBackpackItem') {
                     try {
-                        const response = await fetch(`${apiUrl}/backpack/${request.id}`, {
+                        const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, {
                             method: 'POST',
                             headers: { authorization: currentLsToken, uname, 'Content-Type': 'application/json' },
                             body: JSON.stringify({ name: request.name, blocks: request.blocks, thumbnail: request.thumbnail }),
@@ -630,7 +639,7 @@ async function backgroundScript() {
                     }
                 } else if (request.meta == 'deleteBackpackItem') {
                     try {
-                        const response = await fetch(`${apiUrl}/backpack/${request.id}/${encodeURIComponent(request.itemId)}`, {
+                        const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}/${encodeURIComponent(request.itemId)}`, {
                             method: 'DELETE',
                             headers: { authorization: currentLsToken, uname },
                         });
@@ -641,19 +650,19 @@ async function backgroundScript() {
                         sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
                     }
                 } else if (request.meta == 'getTitle') {
-                    sendResponse((await (await fetch(`${apiUrl}/projectTitle/${request.lsId}`, { headers: { authorization: currentLsToken, uname } })).json()).title);
+                    sendResponse((await (await authenticatedFetch(`${apiUrl}/projectTitle/${request.lsId}`, { headers: { authorization: currentLsToken, uname } })).json()).title);
                 } else if (request.meta == 'leaveScratchId') {
-                    fetch(`${apiUrl}/leaveScratchId/${request.scratchId}/${await refreshUsername()}`, {
+                    authenticatedFetch(`${apiUrl}/leaveScratchId/${request.scratchId}/${await refreshUsername()}`, {
                         method: 'PUT',
                         headers: { authorization: currentLsToken },
                     });
                 } else if (request.meta == 'leaveLSId') {
-                    fetch(`${apiUrl}/leaveLSId/${request.lsId}/${await refreshUsername()}`, {
+                    authenticatedFetch(`${apiUrl}/leaveLSId/${request.lsId}/${await refreshUsername()}`, {
                         method: 'PUT',
                         headers: { authorization: currentLsToken },
                     });
                 } else if (request.meta == 'getActive') {
-                    sendResponse(await (await fetch(`${apiUrl}/active/${request.id}`, { headers: { authorization: currentLsToken, uname } })).json());
+                    sendResponse(await (await authenticatedFetch(`${apiUrl}/active/${request.id}`, { headers: { authorization: currentLsToken, uname } })).json());
                 } else if (request.meta == 'getUrl') {
                     sendResponse(await chrome.runtime.getURL(request.for));
                 } else if (request.meta == 'isPingEnabled') {
@@ -666,6 +675,15 @@ async function backgroundScript() {
             })();
             return true;
         });
+
+    function isTrustedScratchSender(sender) {
+        const source = sender?.url || sender?.tab?.url || sender?.origin;
+        try {
+            return new URL(source).origin === 'https://scratch.mit.edu';
+        } catch {
+            return false;
+        }
+    }
 
 
     chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {

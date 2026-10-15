@@ -13,3 +13,7 @@
     background-color: var(--Supplementary);
     border-color: var(--Supplementary);
 }
+
+.group .eyebrow {
+    color: #ffd45c;
+}

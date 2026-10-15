@@ -146,7 +146,27 @@ header { position: sticky; top: 0; min-height: 68px; padding: 10px clamp(18px,4v
 header #logo { width: 44px; height: 44px; object-fit: contain; }
 header #title { font-size: 21px; font-weight: 700; }
 header #version { padding: 4px 8px; border-radius: 999px; color: #14264d; background: rgba(255,255,255,.52); font-size: 11px; }
-header #switch-theme { right: clamp(18px,4vw,48px); width: 40px; height: 40px; padding: 0; border-radius: 10px; }
+header #switch-theme {
+  right: clamp(18px,4vw,48px);
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border-radius: 10px;
+  background-color: #c5a13d;
+  border: 1px solid rgba(88, 65, 17, 0.22);
+  box-shadow: 0 3px 10px rgba(88, 65, 17, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  object-fit: contain;
+  transition: background-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+header #switch-theme:hover {
+  background-color: #b18d31;
+  box-shadow: 0 5px 13px rgba(88, 65, 17, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+header #switch-theme:focus-visible {
+  outline: 3px solid rgba(20, 38, 77, 0.28);
+  outline-offset: 2px;
+}
 #contents { width: min(1180px,100%); margin: 0 auto; padding: 48px clamp(20px,5vw,64px); gap: 28px; }
 #floating-logo, #floating-logo-back { position: fixed; right: 5vw; top: 120px; opacity: .08; pointer-events: none; }
 .group { gap: 7px; }

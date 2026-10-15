@@ -15,6 +15,6 @@ document.querySelector('#close-tab').addEventListener('click', async () => {
     if (tab?.id) {
         await chrome.tabs.remove(tab.id);
     } else {
-        statusElement.textContent = 'You can close this tab now.';
+        statusElement.textContent = 'You can close this CoBlocks sign-in tab now.';
     }
 });
