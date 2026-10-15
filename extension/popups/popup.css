@@ -560,7 +560,7 @@ body.light-mode #switch-theme {
   background-position: center;
   background-color: #c5a13d;
   border: 0;
-  box-shadow: inset 1px 0 rgba(88, 65, 17, 0.22);
+  box-shadow: 0 3px 10px rgba(88, 65, 17, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 body.dark-mode #switch-theme {
@@ -569,7 +569,7 @@ body.dark-mode #switch-theme {
   background-position: center;
   background-color: #c5a13d;
   border: 0;
-  box-shadow: inset 1px 0 rgba(88, 65, 17, 0.22);
+  box-shadow: 0 3px 10px rgba(88, 65, 17, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 #switch-theme {
@@ -580,7 +580,7 @@ body.dark-mode #switch-theme {
 #switch-theme:hover {
   transform: none;
   background-color: #b18d31;
-  box-shadow: inset 1px 0 rgba(88, 65, 17, 0.3);
+  box-shadow: 0 5px 13px rgba(88, 65, 17, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 #switch-theme:focus-visible {
@@ -596,7 +596,7 @@ header { flex: 0 0 auto; min-height: 64px; padding: 10px 16px; gap: 10px; box-sh
 header #logo { width: 42px; height: 42px; object-fit: contain; }
 header #title { font-size: 20px; font-weight: 700; letter-spacing: -.35px; }
 header #version { padding: 3px 7px; border-radius: 999px; color: #14264d; background: rgba(255,255,255,.52); font-size: 11px; }
-header #switch-theme { top: 0; right: 0; width: 58px; height: 100%; padding: 0; border-radius: 0; }
+header #switch-theme { top: 10px; right: 10px; width: 38px; height: 38px; padding: 0; border-radius: 10px; }
 #contents { flex: 1 1 auto; min-height: 0; padding: 18px; gap: 14px; justify-content: flex-start; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 #contents::-webkit-scrollbar { width: 8px; }
 #contents::-webkit-scrollbar-track { background: transparent; }
