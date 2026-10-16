@@ -281,9 +281,16 @@ async function backgroundScript() {
     //////// INIT SOCKET CONNECTION ///////
     // ['websocket', 'xhr-polling', 'polling', 'htmlfile', 'flashsocket']
     const URLApiUrl = new URL(apiUrl);
-    const URLApiDomain = URLApiUrl.origin;
+    const socketProtocol = URLApiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socketDomain = `${socketProtocol}//${URLApiUrl.host}`;
     const URLApiPath = [''].concat(URLApiUrl.pathname.split('/').filter(Boolean)).join('/');
-    const socket = io.connect(URLApiDomain, { path: `${URLApiPath}/socket.io/`, transports: ['websocket'], reconnectionDelay: 1000, reconnectionDelayMax: 30000 });
+    const socket = io.connect(socketDomain, {
+        path: `${URLApiPath}/socket.io/`,
+        transports: ['websocket'],
+        secure: socketProtocol === 'wss:',
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 30000,
+    });
     LIVESCRATCH.socket = socket;
     // const socket = io.connect(apiUrl,{jsonp:false,transports:['websocket']})
     // socket.on("connect_error", () => { socket.io.opts.transports = ["websocket"];});

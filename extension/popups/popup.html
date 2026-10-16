@@ -110,15 +110,15 @@
     </section>
   </section>
 
-      <div id="not-verified" class="popup" style="display: none; align-items: flex-start;">
-        <span class="title">Connect your Scratch account</span>
+      <div id="not-verified" class="popup" role="dialog" aria-labelledby="scratch-auth-title" style="display: none; align-items: flex-start;">
+        <span id="scratch-auth-title" class="title">Connect your Scratch account</span>
         <span>Sign in with Scratch Auth to use CoBlocks collaboration.</span>
         <button id="scratch-auth-login" class="button" type="button">Sign in with Scratch Auth</button>
         <span id="scratch-auth-status" role="status" aria-live="polite"></span>
       </div>
 
-      <div id="error" class="popup" style="display: none; align-items: flex-start;">
-        <span class="title">Request Error :(</span>
+      <div id="error" class="popup" role="alertdialog" aria-labelledby="request-error-title" tabindex="-1" style="display: none; align-items: flex-start;">
+        <span id="request-error-title" class="title">Request Error :(</span>
         <span id="error-content"></span>
       </div>
     </div>

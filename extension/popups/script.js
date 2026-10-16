@@ -6,6 +6,44 @@ chrome.storage.local.get('theme', (data) => {
 var version = chrome.runtime.getManifest().version_name;
 document.querySelector('#version').innerHTML = 'v'+version;
 
+const blockingPopups = Array.from(document.querySelectorAll('#not-verified, #error'));
+
+function refreshBlockingPopupState() {
+    const activePopup = blockingPopups.find(popup => popup.style.display !== 'none');
+    const contents = document.querySelector('#contents');
+    const friendsList = document.querySelector('#friends-list');
+    const isOpen = Boolean(activePopup);
+
+    document.body.classList.toggle('popup-modal-open', isOpen);
+    friendsList.inert = isOpen;
+    for (const popup of blockingPopups) {
+        popup.inert = isOpen && popup !== activePopup;
+    }
+
+    if (activePopup) {
+        contents.scrollTop = 0;
+        const focusTarget = activePopup.querySelector('button, [href], input, [tabindex="0"]') || activePopup;
+        requestAnimationFrame(() => focusTarget.focus());
+    }
+}
+
+function showBlockingPopup(popupOrSelector) {
+    const popup = typeof popupOrSelector === 'string' ? document.querySelector(popupOrSelector) : popupOrSelector;
+    if (!popup) return;
+    for (const otherPopup of blockingPopups) {
+        if (otherPopup !== popup) otherPopup.style.display = 'none';
+    }
+    popup.style.display = 'flex';
+    refreshBlockingPopupState();
+}
+
+function hideBlockingPopup(popupOrSelector) {
+    const popup = typeof popupOrSelector === 'string' ? document.querySelector(popupOrSelector) : popupOrSelector;
+    if (!popup) return;
+    popup.style.display = 'none';
+    refreshBlockingPopupState();
+}
+
 document.getElementById('server-url').defaultValue = 'https://livescratchapi.waakul.com';
 
 {
@@ -94,13 +132,13 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
         logoutButton.textContent = 'Logging out...';
         status.textContent = '';
         authAccount.hidden = true;
-        authPrompt.style.display = 'inherit';
+        showBlockingPopup(authPrompt);
         try {
             const result = await chrome.runtime.sendMessage({ meta: 'logoutScratchAuth' });
             if (!result?.success) throw new Error(result?.error || 'Could not log out.');
             location.reload();
         } catch (error) {
-            authPrompt.style.display = 'none';
+            hideBlockingPopup(authPrompt);
             authAccount.hidden = false;
             status.textContent = error.message || 'Could not log out.';
             logoutButton.disabled = false;
@@ -234,7 +272,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
                 else { list.forEach(addFriendGUI); }
             }))
             .catch((e) => {
-                document.querySelector('#error').style.display = 'inherit';
+                showBlockingPopup('#error');
                 document.querySelector('#error-content').innerHTML = e.stack.replace(new RegExp(`chrome-extension://${chrome.runtime.id}/`, 'g'), '');
             });
     }
@@ -253,7 +291,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
 });
 
 function showNoAuthMessage() {
-    document.querySelector('#not-verified').style.display = 'inherit';
+    showBlockingPopup('#not-verified');
 }
 
 document.querySelector('#scratch-auth-login')?.addEventListener('click', async () => {

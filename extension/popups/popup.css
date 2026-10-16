@@ -606,7 +606,7 @@ header #logo { width: 42px; height: 42px; object-fit: contain; }
 header #title { font-size: 20px; font-weight: 700; letter-spacing: -.35px; }
 header #version { padding: 3px 7px; border-radius: 999px; color: #14264d; background: rgba(255,255,255,.52); font-size: 11px; }
 header #switch-theme { top: 10px; right: 10px; width: 38px; height: 38px; padding: 0; border-radius: 10px; }
-#contents { flex: 1 1 auto; min-height: 0; padding: 18px; gap: 14px; justify-content: flex-start; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+#contents { position: relative; flex: 1 1 auto; min-height: 0; padding: 18px; gap: 14px; justify-content: flex-start; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 #contents::-webkit-scrollbar { width: 8px; }
 #contents::-webkit-scrollbar-track { background: transparent; }
 #contents::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(20,38,77,.3); background-clip: padding-box; }
@@ -630,6 +630,18 @@ info { font-size: 12px; line-height: 17px; }
 #server-url { min-width: 0; height: 34px; padding: 0 9px; }
 #auth-account { margin-top: 2px; border-radius: 10px; }
 .popup { left: 18px; right: 18px; width: auto; padding: 18px; border-radius: 14px; background: var(--Sub); }
+body.popup-modal-open #friends-list {
+  opacity: .55;
+  pointer-events: none;
+  user-select: none;
+}
+body.popup-modal-open #contents > .popup {
+  left: 12px;
+  right: 12px;
+  width: auto;
+  z-index: 30;
+}
+#error:focus { outline: none; }
 #scratch-auth-login { width: 100%; min-height: 40px; border: 1px solid rgba(224,168,27,.28); border-radius: 10px; color: #14264d; background: linear-gradient(120deg,#ffd45c,#ffe89a); font-weight: 700; }
 footer { flex: 0 0 auto; width: 100%; padding: 14px 18px; gap: 10px; }
 footer > .flex-horiz:first-child { gap: 10px !important; }
