@@ -62,6 +62,21 @@ test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', 
         assert.equal(fullAuthenticate('Alice', finish.body.token, 'owned'), true);
         assert.equal(fullAuthenticate('Alice', finish.body.token, 'other'), false);
 
+        const session = response();
+        routes.get('POST /auth/session')({ body: { username: 'Alice' }, headers: { authorization: finish.body.token } }, session);
+        assert.equal(session.statusCode, 200);
+        assert.equal(session.body.username, 'Alice');
+
+        const differentlyCasedSession = response();
+        routes.get('POST /auth/session')({ body: { username: 'aLiCe' }, headers: { authorization: finish.body.token } }, differentlyCasedSession);
+        assert.equal(differentlyCasedSession.statusCode, 200);
+        assert.equal(differentlyCasedSession.body.username, 'Alice');
+
+        const wrongAccount = response();
+        routes.get('POST /auth/session')({ body: { username: 'Mallory' }, headers: { authorization: finish.body.token } }, wrongAccount);
+        assert.equal(wrongAccount.statusCode, 401);
+        assert.equal(wrongAccount.body.noauth, true);
+
         const replay = response();
         routes.get('POST /auth/scratch/finish')({ body: { state } }, replay);
         assert.equal(replay.statusCode, 400);

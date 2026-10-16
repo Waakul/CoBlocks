@@ -291,22 +291,78 @@ async function backgroundScript() {
     let lastUnameRefresh = 0;
     let usernameRefreshPromise = null;
     let signedin = false;
+
+    async function fetchScratchSessionFromOpenTab() {
+        let tabs;
+        try {
+            tabs = await chrome.tabs.query({ url: 'https://scratch.mit.edu/*' });
+        } catch (error) {
+            console.warn('Could not inspect open Scratch tabs:', error);
+            return null;
+        }
+
+        for (const tab of tabs) {
+            if (!tab.id) continue;
+            try {
+                const result = await chrome.tabs.sendMessage(tab.id, { meta: 'getScratchSession' });
+                if (result?.ok && result.session) return result.session;
+            } catch {
+                // The tab may predate this extension version or still be loading.
+            }
+        }
+        return null;
+    }
+
+    async function getScratchSession() {
+        try {
+            const response = await fetch('https://scratch.mit.edu/session/', {
+                credentials: 'include',
+                cache: 'no-store',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            if (response.ok) {
+                const session = await response.json();
+                if (session?.user) return session;
+            }
+        } catch (error) {
+            console.warn('Direct Scratch session check failed:', error);
+        }
+
+        return fetchScratchSessionFromOpenTab();
+    }
+
+    async function hasScratchSessionCookie() {
+        try {
+            return Boolean(await chrome.cookies.get({
+                url: 'https://scratch.mit.edu/',
+                name: 'scratchsessionsid',
+            }));
+        } catch (error) {
+            console.warn('Could not inspect the Scratch session cookie:', error);
+            return false;
+        }
+    }
+
     async function refreshUsername(force) {
         if (usernameRefreshPromise) return usernameRefreshPromise;
         if (!force && Date.now() - lastUnameRefresh < 60_000) return uname;
         usernameRefreshPromise = (async () => {
-            const res = await fetch('https://scratch.mit.edu/session/', {
-                credentials: 'include',
-                cache: 'no-store',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-            });
-            if (!res.ok) throw new Error(`Scratch session returned ${res.status}`);
-            const json = await res.json();
+            const json = await getScratchSession();
             lastUnameRefresh = Date.now();
-            if (!json.user) {
-                if (uname !== '*' || currentCoBlocksToken) await logoutCoBlocks({ waitForServer: false });
+            if (!json?.user) {
+                // A service worker can be denied Scratch cookies even while the
+                // user is signed in. Keep the known identity in that ambiguous
+                // state; only clear credentials when the cookie is truly gone.
+                if (await hasScratchSessionCookie()) {
+                    signedin = uname !== '*';
+                    return uname;
+                }
+                if (uname !== '*' || currentCoBlocksToken) {
+                    await clearRejectedCredentials(
+                        'Sign in to Scratch and then sign in to CoBlocks again.',
+                        { clearAllTokens: true },
+                    );
+                }
                 signedin = false;
                 uname = '*';
                 upk = undefined;
@@ -315,7 +371,10 @@ async function backgroundScript() {
                 return uname;
             }
             if (uname !== '*' && uname.toLowerCase() !== json.user.username.toLowerCase()) {
-                await logoutCoBlocks({ waitForServer: false });
+                await clearRejectedCredentials(
+                    'Your Scratch account changed. Sign in to CoBlocks again with the current Scratch account.',
+                    { clearAllTokens: true },
+                );
             }
             signedin = true;
             uname = json.user.username;
@@ -327,6 +386,14 @@ async function backgroundScript() {
         try { return await usernameRefreshPromise; } finally { usernameRefreshPromise = null; }
     }
     COBLOCKS.refreshUsername = refreshUsername;
+    COBLOCKS.acceptAuthenticatedUsername = async username => {
+        if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{3,20}$/.test(username)) return false;
+        if (uname !== '*' && uname.toLowerCase() !== username.toLowerCase()) return false;
+        uname = username;
+        signedin = true;
+        await chrome.storage.local.set({ uname });
+        return true;
+    };
 
     chrome.cookies.onChanged.addListener(changeInfo => {
         const cookie = changeInfo.cookie;
@@ -531,7 +598,13 @@ async function backgroundScript() {
                 } else if (request.meta === 'getUsername') {
                     sendResponse(uname);
                 } else if (request.meta === 'getUsernamePlus') {
-                    sendResponse({ uname, signedin, currentCoBlocksToken, apiUrl });
+                    sendResponse({
+                        uname,
+                        signedin,
+                        currentCoBlocksToken,
+                        currentLsToken: currentCoBlocksToken,
+                        apiUrl,
+                    });
                 } else if (request.meta === 'callback') {
                     tabCallbacks[sender.tab.id] = sendResponse;
                 } else if (request.meta === 'projectSaved') {
@@ -647,7 +720,13 @@ async function backgroundScript() {
             sendResponse(uname);
         } else if (request.meta === 'getUsernamePlus') {
             refreshUsername(request.forceRefresh === true).catch(console.error).finally(() => {
-                sendResponse({ uname, signedin, currentCoBlocksToken, apiUrl });
+                sendResponse({
+                    uname,
+                    signedin,
+                    currentCoBlocksToken,
+                    currentLsToken: currentCoBlocksToken,
+                    apiUrl,
+                });
             });
             return true;
         }

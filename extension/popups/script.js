@@ -102,7 +102,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
     if (!info) return;
 
     let username = info.uname;
-    let token = info.currentLsToken;
+    let token = info.currentCoBlocksToken;
     const apiUrl = info.apiUrl;
     const authAccount = document.querySelector('#auth-account');
     const authUsername = document.querySelector('#auth-username');
@@ -134,7 +134,11 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
 
     async function saveServerSetting(enabled, url) {
         await chrome.storage.local.set({ 'custom-server': enabled, 'server-url': url });
-        await chrome.storage.local.remove([`lsToken.${username?.toLowerCase()}`, `blToken.${username?.toLowerCase()}`]);
+        await chrome.storage.local.remove([
+            `lsToken.${username?.toLowerCase()}`,
+            `blToken.${username?.toLowerCase()}`,
+            'coblocksAuthUsername',
+        ]);
         await chrome.storage.local.set({ apiUpdateReload: true });
         chrome.runtime.reload();
     }
@@ -164,7 +168,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
         if (account.signedin) {
             document.querySelector('#loggedout').style.display = 'none';
             contents.style.display = 'flex';
-            token = account.currentLsToken;
+            token = account.currentCoBlocksToken;
             username = account.uname;
         } else {
             document.querySelector('#loggedout').style.display = 'flex';
@@ -239,8 +243,10 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
 
     document.querySelector('#submit').onclick = () => addFriend(addFriendInput.value);
 
-    if (!info.currentLsToken) {
+    if (!info.currentCoBlocksToken) {
         showNoAuthMessage();
+        const reason = await chrome.runtime.sendMessage({ meta: 'getVerifyError' });
+        if (reason) document.querySelector('#scratch-auth-status').textContent = reason;
     } else {
         try {
             const response = await fetch(`${apiUrl}/friends/${username}`, { headers: { authorization: token } });

@@ -4001,10 +4001,10 @@ function addChat() {
 
         const chatbox = document.querySelector('ls-chat');
 
-        document.querySelector('ls-chat-input').addEventListener('keydown', (e) => {
-            if (e.keyCode === 13 && !e.shiftKey) {
+        document.querySelector('ls-chat-input').addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
                 postMessageBubble();
-                e.preventDefault();
+                event.preventDefault();
             }
         });
         document.querySelector('ls-chat-send-button').onclick = postMessageBubble;
@@ -4013,8 +4013,8 @@ function addChat() {
         //// get own username, then populate chat history
         chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
             uname = userData.uname;
-            const lsToken = userData.currentLsToken;
-            fetch(apiUrl + '/chat/' + lsId, { headers: { uname, authorization: lsToken } }).then(async res => {
+            const token = userData.currentCoBlocksToken;
+            fetch(apiUrl + '/chat/' + lsId, { headers: { uname, authorization: token } }).then(async res => {
                 const chatHistory = await res.json();
                 chatHistory.forEach(msg => addMessage(msg));
             });

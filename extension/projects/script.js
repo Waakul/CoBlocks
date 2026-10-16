@@ -54,7 +54,7 @@ async function loadProjects() {
     try {
         const account = await chrome.runtime.sendMessage({ meta: 'getUsernamePlus' });
         const response = await fetch(`${account.apiUrl}/userProjectsScratch/${account.uname}/`, {
-            headers: { authorization: account.currentLsToken },
+            headers: { authorization: account.currentCoBlocksToken },
         });
         const projects = await response.json();
 

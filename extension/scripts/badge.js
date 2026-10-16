@@ -50,7 +50,7 @@
 
         if (username === account.uname) {
             const isPrivate = await fetch(`${account.apiUrl}/privateMe/${username}`, {
-                headers: { authorization: account.currentLsToken },
+                headers: { authorization: account.currentCoBlocksToken },
             }).then(response => response.json()).catch(() => false);
             if (isPrivate) return;
         }

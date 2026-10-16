@@ -9,6 +9,7 @@ let loginInFlight = false;
 let credentialResetPromise = null;
 const endVerifyCallbacks = [];
 const startVerifyCallbacks = [];
+const AUTH_USERNAME_KEY = 'coblocksAuthUsername';
 
 async function getCoBlocksToken(username) {
     if (!username || username === '*') return null;
@@ -22,25 +23,76 @@ async function getCoBlocksToken(username) {
     return stored[key] || stored[oldKey] || null;
 }
 
-async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
-    currentCoBlocksToken = await getCoBlocksToken(uname);
-    return currentCoBlocksToken;
-}
-
-async function clearCurrentCoBlocksToken() {
+async function clearCurrentCoBlocksToken({ clearAllTokens = false } = {}) {
     const rejectedToken = currentCoBlocksToken;
     const stored = await chrome.storage.local.get(null);
     const matchingTokenKeys = Object.entries(stored)
-        .filter(([key, value]) => /^(lsToken|blToken)\./.test(key) && value === rejectedToken)
+        .filter(([key, value]) => /^(lsToken|blToken)\./.test(key) && (clearAllTokens || value === rejectedToken))
         .map(([key]) => key);
-    if (uname && uname !== '*') {
+    const usernames = new Set([uname, stored[AUTH_USERNAME_KEY]].filter(username => username && username !== '*'));
+    for (const username of usernames) {
         matchingTokenKeys.push(
-            `lsToken.${uname.toLowerCase()}`,
-            `blToken.${uname.toLowerCase()}`,
+            `lsToken.${username.toLowerCase()}`,
+            `blToken.${username.toLowerCase()}`,
         );
     }
-    if (matchingTokenKeys.length) await chrome.storage.local.remove([...new Set(matchingTokenKeys)]);
+    await chrome.storage.local.remove([...new Set([...matchingTokenKeys, AUTH_USERNAME_KEY])]);
     currentCoBlocksToken = null;
+}
+
+async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
+    const scratchUsername = uname;
+    if (!scratchUsername || scratchUsername === '*') {
+        currentCoBlocksToken = null;
+        return null;
+    }
+
+    const stored = await chrome.storage.local.get(AUTH_USERNAME_KEY);
+    const authenticatedUsername = stored[AUTH_USERNAME_KEY];
+    if (authenticatedUsername && typeof authenticatedUsername !== 'string') {
+        await clearRejectedCredentials('The saved CoBlocks login was invalid. Sign in again.', { clearAllTokens: true });
+        return null;
+    }
+    if (authenticatedUsername
+        && authenticatedUsername.toLowerCase() !== scratchUsername.toLowerCase()) {
+        currentCoBlocksToken = await getCoBlocksToken(authenticatedUsername);
+        await clearRejectedCredentials(
+            'Your Scratch account changed. Sign in to CoBlocks again with the current Scratch account.',
+            { clearAllTokens: true },
+        );
+        return null;
+    }
+
+    const token = await getCoBlocksToken(scratchUsername);
+    currentCoBlocksToken = token;
+    if (!token) {
+        if (authenticatedUsername) await chrome.storage.local.remove(AUTH_USERNAME_KEY);
+        return null;
+    }
+
+    try {
+        const response = await fetch(`${apiUrl}/auth/session`, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { authorization: token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: scratchUsername }),
+        });
+        const data = await response.json().catch(() => ({}));
+        const verifiedUsername = typeof data.username === 'string' ? data.username : null;
+        if (response.status === 401
+            || data.noauth === true
+            || (response.ok && verifiedUsername?.toLowerCase() !== scratchUsername.toLowerCase())) {
+            await clearRejectedCredentials(
+                'Your CoBlocks login does not match the current Scratch account. Sign in again.',
+                { clearAllTokens: true },
+            );
+            return null;
+        }
+        if (response.ok) await chrome.storage.local.set({ [AUTH_USERNAME_KEY]: verifiedUsername });
+    } catch (error) {
+        console.warn('Could not verify the CoBlocks account while the server is unavailable:', error);
+    }
+    return currentCoBlocksToken;
 }
 
 async function clearBackendAuthCookies() {
@@ -58,11 +110,14 @@ async function clearBackendAuthCookies() {
     }
 }
 
-async function clearRejectedCredentials(reason = 'Your CoBlocks login expired. Please sign in again.') {
+async function clearRejectedCredentials(
+    reason = 'Your CoBlocks login expired. Please sign in again.',
+    { clearAllTokens = false } = {},
+) {
     if (credentialResetPromise) return credentialResetPromise;
     credentialResetPromise = (async () => {
         await Promise.all([
-            clearCurrentCoBlocksToken(),
+            clearCurrentCoBlocksToken({ clearAllTokens }),
             clearBackendAuthCookies(),
             chrome.storage.session.remove('scratchAuthLogin'),
         ]);
@@ -181,8 +236,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
         const data = await response.json();
         if (!response.ok || !data.username || !data.token) throw new Error(data.err || 'Login failed.');
         await COBLOCKS.refreshUsername(true);
-        if (uname.toLowerCase() !== data.username.toLowerCase()) throw new Error('Scratch Auth account does not match the current Scratch account.');
+        if (!await COBLOCKS.acceptAuthenticatedUsername?.(data.username)) {
+            throw new Error('Scratch Auth account does not match the current Scratch account.');
+        }
         await chrome.storage.local.set({ [`lsToken.${data.username.toLowerCase()}`]: data.token });
+        await chrome.storage.local.set({ [AUTH_USERNAME_KEY]: data.username });
         currentCoBlocksToken = data.token;
         await COBLOCKS.onAuthenticated?.();
         finishVerification(true);
@@ -219,6 +277,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 sendResponse({ success: false, error: error.message });
             });
         return true;
+    }
+    if (request.meta === 'getVerifyError') {
+        sendResponse(verifyError);
+        return false;
     }
 });
 

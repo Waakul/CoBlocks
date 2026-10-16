@@ -395,7 +395,7 @@ async function onTabLoad() {
 
 
 chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) => {
-    if (!userData.currentLsToken) {
+    if (!userData.currentCoBlocksToken) {
 
         let newVerified = false;
         addStartVerificationCallback(() => {

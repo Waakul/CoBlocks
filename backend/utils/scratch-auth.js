@@ -106,6 +106,14 @@ export function setPaths(app, users, sessions) {
         res.json({ username: user.username, token: item.token });
     });
 
+    app.post('/auth/session', (req, res) => {
+        const username = req.body?.username;
+        if (!authenticate(username, req.headers.authorization)) {
+            return res.status(401).json({ noauth: true });
+        }
+        res.json({ username: userManager.findUser(username).username });
+    });
+
     app.post('/auth/logout', (req, res) => {
         const username = req.body?.username;
         if (!authenticate(username, req.headers.authorization)) return res.status(401).json({ err: 'Invalid login.' });
