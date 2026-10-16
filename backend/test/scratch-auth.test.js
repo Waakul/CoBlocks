@@ -28,7 +28,6 @@ test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', 
             return users.get(key);
         },
         findUser(username) { return users.get(username.toLowerCase()); },
-        token() { return 'test-secret'; },
         persistUser() { return true; },
     };
     setPaths(app, userManager, { canUserAccessProject: (_username, id) => id === 'owned' });
@@ -115,7 +114,6 @@ test('an older login cannot claim the token from a newer login', async () => {
         post(path, handler) { routes.set(`POST ${path}`, handler); },
     };
     const users = new Map();
-    let tokenNumber = 0;
     const manager = {
         getUser(username) {
             const key = username.toLowerCase();
@@ -123,7 +121,6 @@ test('an older login cannot claim the token from a newer login', async () => {
             return users.get(key);
         },
         findUser(username) { return users.get(username.toLowerCase()); },
-        token() { tokenNumber++; return `token-${tokenNumber}`; },
         persistUser() { return true; },
     };
     setPaths(app, manager, { canUserAccessProject() { return true; } });
@@ -151,6 +148,7 @@ test('an older login cannot claim the token from a newer login', async () => {
 
         const currentFinish = response();
         routes.get('POST /auth/scratch/finish')({ body: { state: secondStart.body.state } }, currentFinish);
-        assert.equal(currentFinish.body.token, 'token-2');
+        assert.match(currentFinish.body.token, /^[a-f0-9]{64}$/);
+        assert.equal(authenticate('Alice', currentFinish.body.token), true);
     } finally { global.fetch = originalFetch; }
 });

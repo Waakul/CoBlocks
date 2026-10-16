@@ -19,6 +19,27 @@ function validUsername(username) {
     return typeof username === 'string' && /^[a-zA-Z0-9_-]{3,20}$/.test(username);
 }
 
+function createToken() {
+    return randomBytes(32).toString('hex');
+}
+
+async function verifyPrivateCode(privateCode) {
+    const url = new URL('/api/auth/verifyToken', SCRATCH_AUTH);
+    url.searchParams.set('privateCode', privateCode);
+    try {
+        const response = await fetch(url, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(12_000),
+        });
+        if (!response.ok) throw new Error(`Scratch Auth returned ${response.status}`);
+        return await response.json();
+    } catch (cause) {
+        const error = new Error('Scratch Auth provider verification failed.', { cause });
+        error.providerFailure = true;
+        throw error;
+    }
+}
+
 function publicBaseUrl() {
     const raw = process.env.PUBLIC_BASE_URL || 'https://livescratchapi.waakul.com';
     try {
@@ -67,18 +88,14 @@ export function setPaths(app, users, sessions) {
         if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the CoBlocks login.');
         item.status = 'verifying';
         try {
-            const url = new URL('/api/auth/verifyToken', SCRATCH_AUTH);
-            url.searchParams.set('privateCode', req.query.privateCode);
-            const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
-            if (!response.ok) throw new Error(`Scratch Auth returned ${response.status}`);
-            const data = await response.json();
+            const data = await verifyPrivateCode(req.query.privateCode);
             if (data.valid !== true || data.redirect !== item.redirect || !validUsername(data.username)) {
                 pending.delete(req.query.state);
                 return res.status(403).send('Scratch Auth could not verify this CoBlocks login.');
             }
             const user = userManager.getUser(data.username);
             user.verified = true;
-            user.token = userManager.token();
+            user.token = createToken();
             if (!userManager.persistUser(data.username)) throw new Error('Could not save authenticated user');
             item.status = 'complete';
             item.username = data.username;
@@ -87,7 +104,9 @@ export function setPaths(app, users, sessions) {
         } catch (error) {
             pending.delete(req.query.state);
             console.error('Scratch Auth verification failed:', error);
-            res.status(503).send('CoBlocks could not reach Scratch Auth. Please try again.');
+            res.status(503).send(error.providerFailure
+                ? 'CoBlocks could not reach Scratch Auth. Please try again.'
+                : 'CoBlocks could not finish the login. Check the backend log and try again.');
         }
     });
 
@@ -119,7 +138,7 @@ export function setPaths(app, users, sessions) {
         if (!authenticate(username, req.headers.authorization)) return res.status(401).json({ err: 'Invalid login.' });
         const user = userManager.findUser(username);
         user.verified = false;
-        user.token = userManager.token();
+        user.token = createToken();
         if (!userManager.persistUser(username)) return res.status(500).json({ err: 'Could not save logout.' });
         res.status(204).send();
     });
