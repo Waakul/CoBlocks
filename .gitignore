@@ -4,5 +4,6 @@
 *.DS_Store
 backend/storage
 backend/storage-redundancy
+backend/storage-backups/
 /debug/
 backend/.env

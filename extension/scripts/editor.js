@@ -3223,7 +3223,7 @@ function makeLivescratchButton(sharebutton) {
 function makeRevertButton(communityButton) {
     let button = document.createElement('livescratch-init');
     button.id='lsRevert';
-    button.className = Array.from(communityButton.classList).filter(e=>['button_outlined-button','menu-bar_menu-bar-button','community-button_community-button'].find(n=>e.includes(n))).join(' ');
+    button.className = Array.from(communityButton.classList).filter(e=>['button_outlined-button','menu-bar_menu-bar-button','share-button_share-button'].find(n=>e.includes(n))).join(' ');
     
     // ;'button_outlined-button_1bS__ menu-bar_menu-bar-button_3IDN0 community-button_community-button_2Lo_g'
     
@@ -3237,8 +3237,15 @@ function makeRevertButton(communityButton) {
     // button.style.background = '#ffc83d' // livescratch green
     button.style.display = 'flex';
     button.style.flexDirection = 'row';
+    button.style.alignItems = 'center';
+    button.style.justifyContent = 'center';
+    button.style.whiteSpace = 'nowrap';
     button.style.backgroundColor = 'rgb(255 255 255 / 16%)';
     button.style.color = '#fff';
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', 'Revert recent CoBlocks edits');
+    button.title = 'Revert recent CoBlocks edits';
 
     let text = document.createElement('text');
     text.style.textAlign = 'center';
@@ -3494,17 +3501,17 @@ function addButtonInjectors() {
 
 
 function addRevertButton() {
-    let seeProjectPage = Array.from(document.querySelectorAll('span[class*="community-button_community-button"]')).find(e=>e.innerText?.includes('Page'))
-        ?? document.querySelector('[class*="menu-bar_menu-bar-button"]');
+    const shareButton = document.querySelector('button[class*="share-button_share-button"]');
+    const coblocksContainer = livescratchButton?.parentElement;
 
-    if(!lsId || !seeProjectPage) {return;}
+    if(!lsId || !shareButton || !coblocksContainer || document.querySelector('#lsRevert')) {return;}
 
     // let container = document.createElement('revertContainer')
     // container.style.display = 'flex'
     // container.style.flexDirection = 'column'
 
     // if(!doIOwnThis()) {return} // if 
-    let button = makeRevertButton(seeProjectPage);
+    let button = makeRevertButton(shareButton);
     // let dropdown = document.createElement('livescratchDropdown')
     // dropdown.innerHTML = shareDropdown
     // dropdown.style.position = 'absolute'
@@ -3524,11 +3531,16 @@ function addRevertButton() {
         //     return lsActivateClick()
         // }
     };
+    button.onkeydown = event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            button.click();
+        }
+    };
 
     // container.appendChild(button)
     // mystuff.after(button)
-    window.seeProjectPage = seeProjectPage;
-    seeProjectPage.before(button);
+    coblocksContainer.insertAdjacentElement('afterend', button);
 
     // delete tutorials text
     Array.from(document.querySelectorAll('span')).find(e=>e.className.includes('menu-bar_tutorials-label'))?.remove();
