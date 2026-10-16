@@ -1,7 +1,12 @@
 .blbadge {
-    transition: 0.4s;
-    transition-property: rotate, transform;
+    flex: 0 0 auto;
+    object-fit: contain;
+    vertical-align: middle;
 }
-.blbadge:hover {
-    rotate:360deg;
+
+.coblocks-user-badge {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 3px;
 }

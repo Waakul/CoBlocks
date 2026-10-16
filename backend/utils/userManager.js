@@ -1,188 +1,189 @@
-// user:
-//  friends LIST of STRING
-//  projects owned by user LIST of 
-//  projects shared to user LIST
-//     > livescratch id
-//     > from user
-//  scratch id (pk- "primary key")
-//
-
-import sanitize from 'sanitize-filename';
-import { readRecoveryCopy, saveMapToFolder, usersPath } from './fileStorage.js';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
 import { randomBytes } from 'node:crypto';
+import sanitize from 'sanitize-filename';
 
-const OFFLOAD_TIMEOUT_MILLIS = 30 * 1000;
+import { readRecoveryCopy, saveMapToFolder, usersPath } from './fileStorage.js';
+
+const OFFLOAD_DELAY_MS = 30_000;
+const USERNAME_PATTERN = /^[a-zA-Z0-9_-]{3,20}$/;
+
+function normalizeUsername(username) {
+    return typeof username === 'string' && USERNAME_PATTERN.test(username)
+        ? username.toLowerCase()
+        : null;
+}
+
+function createUser(username) {
+    return {
+        username,
+        friends: [],
+        token: randomBytes(32).toString('hex'),
+        sharedTo: {},
+        myProjects: [],
+        verified: false,
+        privateMe: false,
+    };
+}
 
 export default class UserManager {
-
-    // removed since dynamic reloading/offloading
-    // static fromJSON(json) {
-    //     let thing = new UserManager()
-    //     thing.users = json.users
-    //     return thing
-    // }
-
     users = {};
+    offloadTimers = {};
 
     verify(username, token) {
-        return !!token && this.findUser(username)?.token === token;
+        return Boolean(token) && this.findUser(username)?.token === token;
     }
 
-    befriend(base, to) {
-        console.log(base + ' friending ' + to);
-        const friends = this.getUser(base)?.friends;
-        const friend = to?.toLowerCase();
-        if (friends && friend && !friends.some(name => String(name).toLowerCase() === friend)) friends.push(friend);
+    befriend(username, friendUsername) {
+        const user = this.getUser(username);
+        const friend = normalizeUsername(friendUsername);
+        if (!user || !friend) return false;
+        if (!user.friends.some(name => normalizeUsername(name) === friend)) user.friends.push(friend);
+        return true;
     }
-    unbefriend(base, take) {
-        console.log(base + ' unfriending ' + take);
-        take = take?.toLowerCase();
-        const friends = this.getUser(base)?.friends;
-        const index = friends?.findIndex(name => String(name).toLowerCase() === take) ?? -1;
-        if (index !== -1) friends.splice(index, 1);
+
+    unbefriend(username, friendUsername) {
+        const user = this.getUser(username);
+        const friend = normalizeUsername(friendUsername);
+        if (!user || !friend) return false;
+
+        const index = user.friends.findIndex(name => normalizeUsername(name) === friend);
+        if (index === -1) return false;
+        user.friends.splice(index, 1);
+        return true;
     }
 
     userExists(username) {
-        this.reloadUser(username);
-        return (username?.toLowerCase?.() in this.users);
+        return Boolean(this.findUser(username));
     }
 
     getUser(username) {
-        if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{3,20}$/.test(username)) return null;
-        username = username.toLowerCase();
+        const normalized = normalizeUsername(username);
+        if (!normalized) return null;
 
-        // clear previous timeout
-        clearTimeout(this.offloadTimeoutIds[username]);
-        delete this.offloadTimeoutIds[username];
-        // set new timeout
-        let timeout = setTimeout(() => { this.offloadUser(username); }, OFFLOAD_TIMEOUT_MILLIS);
-        this.offloadTimeoutIds[username] = timeout;
-
-
-        this.reloadUser(username);
-        if (!(username?.toLowerCase() in this.users)) {
-            this.addUser(username);
-        }
-        return this.users[username.toLowerCase()]; // 🟢
+        this.reloadUser(normalized);
+        if (!this.users[normalized]) this.users[normalized] = createUser(normalized);
+        this.scheduleOffload(normalized);
+        return this.users[normalized];
     }
 
     findUser(username) {
-        if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{3,20}$/.test(username)) return null;
-        this.reloadUser(username);
-        return this.users[username.toLowerCase()] || null;
+        const normalized = normalizeUsername(username);
+        if (!normalized) return null;
+
+        this.reloadUser(normalized);
+        const user = this.users[normalized] || null;
+        if (user) this.scheduleOffload(normalized);
+        return user;
     }
 
     addUser(username) {
-        this.reloadUser(username);
-        if (!(username?.toLowerCase() in this.users)) {
-            this.users[username.toLowerCase()] = { username, friends: [], token: this.token(), sharedTo: {}, myProjects: [], verified:false, privateMe: false }; // 🚨
-        }
         return this.getUser(username);
     }
 
-    offloadTimeoutIds = {};
+    scheduleOffload(username) {
+        clearTimeout(this.offloadTimers[username]);
+        this.offloadTimers[username] = setTimeout(() => this.offloadUser(username), OFFLOAD_DELAY_MS);
+    }
 
     reloadUser(username) {
-        if (!username?.toLowerCase) { console.error(`username is not string ${username}`); console.trace(); return; } // username is not a string
-        username = username.toLowerCase();
+        const normalized = normalizeUsername(username);
+        if (!normalized || this.users[normalized]) return;
 
-        if (!(username in this.users)) {
-            // console.log(`reloading user ${username}`)
+        const filename = sanitize(normalized);
+        if (!filename) return;
 
-            let usernameFile = sanitize(username + '');
-            if (!usernameFile) { return; } // dont do anything if username doesnt exist
+        const filePath = path.join(usersPath, filename);
+        let rawUser;
+        try {
+            rawUser = fs.readFileSync(filePath, 'utf8');
+        } catch (error) {
+            if (error.code !== 'ENOENT') console.error(`Could not read user ${normalized}:`, error);
+            rawUser = null;
+        }
 
-            let filename = usersPath + path.sep + usernameFile;
+        try {
+            if (rawUser === null) throw new Error('Primary user record is unavailable');
+            const user = JSON.parse(rawUser);
+            if (!user || typeof user !== 'object' || !user.username) throw new Error('Invalid user record');
+            this.users[normalized] = user;
+        } catch {
+            const recovered = readRecoveryCopy(usersPath, filename, value => Boolean(value?.username));
+            if (!recovered) return;
 
-            try {
-                let json;
-                try { json = fs.readFileSync(filename); } catch { json = null; }
-                let user;
-                try {
-                    user = JSON.parse(json);
-                    if (!user || typeof user !== 'object' || !user.username) throw new Error('Invalid user record');
-                } catch {
-                    const recovered = readRecoveryCopy(usersPath, usernameFile, value => !!value?.username);
-                    if (!recovered) return;
-                    user = JSON.parse(recovered);
-                    saveMapToFolder({ [usernameFile]: user }, usersPath);
-                    console.warn(`Recovered user ${usernameFile} from a redundant copy.`);
-                }
-                this.users[username] = user;
-            } catch (error) {
-                console.error(`Could not load user ${username}:`, error);
-                throw error;
-            }
-
-
+            const user = JSON.parse(recovered);
+            this.users[normalized] = user;
+            saveMapToFolder({ [filename]: user }, usersPath);
+            console.warn(`Recovered user ${filename} from a redundant copy.`);
         }
     }
+
     offloadUser(username) {
-        // console.log(`offloading user ${username}`)
-        if (!username?.toLowerCase) { console.error(`username is not string ${username}`); console.trace(); return; } // username is not a string
-        username = username.toLowerCase();
-        if (!(username in this.users)) { return; }
-        let usersSave = {};
-        usersSave[username] = this.users[username]; // get user object to save
-        if (saveMapToFolder(usersSave, usersPath)) delete this.users[username];
+        const normalized = normalizeUsername(username);
+        const user = normalized && this.users[normalized];
+        if (!user) return false;
+
+        clearTimeout(this.offloadTimers[normalized]);
+        delete this.offloadTimers[normalized];
+        if (!saveMapToFolder({ [normalized]: user }, usersPath)) return false;
+        delete this.users[normalized];
+        return true;
     }
 
     persistUser(username) {
-        const user = this.findUser(username);
-        return !!user && saveMapToFolder({ [username.toLowerCase()]: user }, usersPath);
+        const normalized = normalizeUsername(username);
+        const user = normalized && this.findUser(normalized);
+        return Boolean(user) && saveMapToFolder({ [normalized]: user }, usersPath);
     }
 
-    newProject(owner, lsId) {
-        console.log(`usrMngr: adding new project ${lsId} owned by ${owner}`);
-        const id = String(lsId);
-        if (this.getUser(owner).myProjects.map(String).includes(id)) { return; }
-        this.getUser(owner).myProjects.push(id);
+    newProject(owner, projectId) {
+        const user = this.getUser(owner);
+        if (!user) return false;
+
+        const id = String(projectId);
+        if (!user.myProjects.map(String).includes(id)) user.myProjects.push(id);
+        return true;
     }
 
-    share(username, lsId, from) {
-        lsId = String(lsId);
-        from = from?.toLowerCase();
-        console.log(`usrMngr: sharing ${lsId} with ${username} from ${from}`);
-        let map = this.getUser(username)?.sharedTo;
-        if (!map) { return; }
-        if (lsId in map) { return; }
-        map[lsId] = { from, id: lsId };
+    share(username, projectId, owner) {
+        const user = this.getUser(username);
+        if (!user) return false;
+
+        const id = String(projectId);
+        if (!user.sharedTo || typeof user.sharedTo !== 'object') user.sharedTo = {};
+        if (!user.sharedTo[id]) user.sharedTo[id] = { from: normalizeUsername(owner), id };
+        return true;
     }
-    unShare(username, lsId) {
-        username = username?.toLowerCase();
-        console.log(`usrMngr: unsharing ${lsId} with ${username}`);
-        let map = this.getUser(username)?.sharedTo;
-        if (!map) { return; }
-        delete map[lsId];
 
-        let ownedIndex = this.getUser(username)?.myProjects.map(String).indexOf(String(lsId));
-        if (ownedIndex != -1) {
-            this.getUser(username)?.myProjects.splice(ownedIndex, 1);
-        }
+    unShare(username, projectId) {
+        const user = this.getUser(username);
+        if (!user) return false;
 
-
-
+        const id = String(projectId);
+        delete user.sharedTo?.[id];
+        const ownedIndex = user.myProjects.map(String).indexOf(id);
+        if (ownedIndex !== -1) user.myProjects.splice(ownedIndex, 1);
+        return true;
     }
+
     getSharedObjects(username) {
-        return Object.values(this.getUser(username)?.sharedTo);
+        const sharedTo = this.getUser(username)?.sharedTo;
+        return sharedTo && typeof sharedTo === 'object' ? Object.values(sharedTo) : [];
     }
+
     getShared(username) {
-        let user = this.getUser(username);
-        let objs = this.getSharedObjects(username);
-        if (!objs) { return []; }
-        return objs.filter((proj) => (user.friends.indexOf(proj.from?.toLowerCase()) != -1)).map((proj) => (proj.id));
+        const user = this.getUser(username);
+        if (!user) return [];
+
+        const friends = new Set(user.friends.map(normalizeUsername).filter(Boolean));
+        return this.getSharedObjects(username)
+            .filter(project => friends.has(normalizeUsername(project.from)))
+            .map(project => String(project.id));
     }
+
     getAllProjects(username) {
-        return [...new Set(this.getUser(username).myProjects.concat(this.getShared(username)).map(String))];
+        const user = this.getUser(username);
+        if (!user) return [];
+        return [...new Set([...user.myProjects, ...this.getShared(username)].map(String))];
     }
-
-    rand() {
-        return Math.random().toString(36).substring(2); // remove `0.`
-    };
-
-    token() {
-        return randomBytes(32).toString('hex');
-    };
 }

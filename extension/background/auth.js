@@ -1,4 +1,6 @@
-let currentLsToken = null;
+/* exported authenticatedFetch, clearRejectedCredentials, currentCoBlocksToken, getCurrentCoBlocksTokenAfterUsernameRefresh, logoutCoBlocks */
+
+let currentCoBlocksToken = null;
 let verifying = false;
 let verifyError = null;
 let loginTabId = null;
@@ -8,7 +10,7 @@ let credentialResetPromise = null;
 const endVerifyCallbacks = [];
 const startVerifyCallbacks = [];
 
-async function getLivescratchToken(username) {
+async function getCoBlocksToken(username) {
     if (!username || username === '*') return null;
     const key = `lsToken.${username.toLowerCase()}`;
     const oldKey = `blToken.${username.toLowerCase()}`;
@@ -20,25 +22,13 @@ async function getLivescratchToken(username) {
     return stored[key] || stored[oldKey] || null;
 }
 
-async function getCurrentLsToken() {
-    const username = await LIVESCRATCH.refreshUsername();
-    currentLsToken = await getLivescratchToken(username);
-    return currentLsToken;
+async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
+    currentCoBlocksToken = await getCoBlocksToken(uname);
+    return currentCoBlocksToken;
 }
 
-async function getCurrentLSTokenAfterUsernameRefresh() {
-    currentLsToken = await getLivescratchToken(uname);
-    return currentLsToken;
-}
-
-function storeLivescratchToken(username, token, current = false) {
-    if (!username || username === '*') return;
-    chrome.storage.local.set({ [`lsToken.${username.toLowerCase()}`]: token });
-    if (current) currentLsToken = token;
-}
-
-async function clearCurrentLsToken() {
-    const rejectedToken = currentLsToken;
+async function clearCurrentCoBlocksToken() {
+    const rejectedToken = currentCoBlocksToken;
     const stored = await chrome.storage.local.get(null);
     const matchingTokenKeys = Object.entries(stored)
         .filter(([key, value]) => /^(lsToken|blToken)\./.test(key) && value === rejectedToken)
@@ -50,7 +40,7 @@ async function clearCurrentLsToken() {
         );
     }
     if (matchingTokenKeys.length) await chrome.storage.local.remove([...new Set(matchingTokenKeys)]);
-    currentLsToken = null;
+    currentCoBlocksToken = null;
 }
 
 async function clearBackendAuthCookies() {
@@ -72,7 +62,7 @@ async function clearRejectedCredentials(reason = 'Your CoBlocks login expired. P
     if (credentialResetPromise) return credentialResetPromise;
     credentialResetPromise = (async () => {
         await Promise.all([
-            clearCurrentLsToken(),
+            clearCurrentCoBlocksToken(),
             clearBackendAuthCookies(),
             chrome.storage.session.remove('scratchAuthLogin'),
         ]);
@@ -82,7 +72,7 @@ async function clearRejectedCredentials(reason = 'Your CoBlocks login expired. P
         loginTabId = null;
         loginState = null;
         try {
-            LIVESCRATCH.onLoggedOut?.();
+            COBLOCKS.onLoggedOut?.();
         } catch (error) {
             console.warn('Could not leave active CoBlocks sessions after credential rejection:', error);
         }
@@ -103,10 +93,10 @@ async function authenticatedFetch(input, init = {}) {
     return response;
 }
 
-async function logoutLivescratch({ waitForServer = true } = {}) {
+async function logoutCoBlocks({ waitForServer = true } = {}) {
     const username = uname;
-    const token = currentLsToken;
-    await clearCurrentLsToken();
+    const token = currentCoBlocksToken;
+    await clearCurrentCoBlocksToken();
     await chrome.storage.session.remove('scratchAuthLogin');
     verifying = false;
     verifyError = null;
@@ -114,7 +104,7 @@ async function logoutLivescratch({ waitForServer = true } = {}) {
     loginTabId = null;
     loginState = null;
     try {
-        LIVESCRATCH.onLoggedOut?.();
+        COBLOCKS.onLoggedOut?.();
     } catch (error) {
         console.warn('Could not leave the active CoBlocks session during logout:', error);
     }
@@ -148,7 +138,7 @@ async function beginScratchAuth() {
     verifying = true;
     verifyError = null;
     try {
-        await LIVESCRATCH.refreshUsername(true);
+        await COBLOCKS.refreshUsername(true);
         const response = await fetch(`${apiUrl}/auth/scratch/start`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
         });
@@ -190,11 +180,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
         });
         const data = await response.json();
         if (!response.ok || !data.username || !data.token) throw new Error(data.err || 'Login failed.');
-        await LIVESCRATCH.refreshUsername(true);
+        await COBLOCKS.refreshUsername(true);
         if (uname.toLowerCase() !== data.username.toLowerCase()) throw new Error('Scratch Auth account does not match the current Scratch account.');
         await chrome.storage.local.set({ [`lsToken.${data.username.toLowerCase()}`]: data.token });
-        currentLsToken = data.token;
-        await LIVESCRATCH.onAuthenticated?.();
+        currentCoBlocksToken = data.token;
+        await COBLOCKS.onAuthenticated?.();
         finishVerification(true);
         const successUrl = new URL(chrome.runtime.getURL('auth/success.html'));
         successUrl.searchParams.set('username', data.username);
@@ -218,11 +208,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
     if (request.meta === 'clearCrntToken') {
-        clearCurrentLsToken().then(() => sendResponse('success'));
+        clearCurrentCoBlocksToken().then(() => sendResponse('success'));
         return true;
     }
     if (request.meta === 'logoutScratchAuth') {
-        logoutLivescratch({ waitForServer: false })
+        logoutCoBlocks({ waitForServer: false })
             .then(sendResponse)
             .catch(error => {
                 console.error('Could not log out:', error);

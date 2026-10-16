@@ -1,111 +1,159 @@
 import { Filter } from './utils/profanity-filter.js';
 import { postText } from './utils/discord-webhook.js';
-import { addRecent} from './utils/recentUsers.js';
-import {authenticate, fullAuthenticate} from './utils/scratch-auth.js';
-import * as fileStorageUtils from './utils/fileStorage.js';
-const admin = JSON.parse(process.env.ADMIN || '[]').map(name => String(name).toLowerCase());
+import { addRecent } from './utils/recentUsers.js';
+import { authenticate, fullAuthenticate } from './utils/scratch-auth.js';
+import { getBanned } from './utils/fileStorage.js';
 
-export default class initSockets {
-    constructor(ioHttp, sessionManager, userManager) {
-        this.filter = new Filter();
+const BROADCAST_PREFIX = 'toall ';
+const admins = JSON.parse(process.env.ADMIN || '[]').map(name => String(name).toLowerCase());
 
+export default class SocketServer {
+    constructor(io, sessionManager, userManager) {
+        this.io = io;
         this.sessionManager = sessionManager;
         this.userManager = userManager;
+        this.filter = new Filter();
 
-        this.messageHandlers = {
-            'joinSession':(data,client)=>{
-                if(!this.requireProjectAccess(data.username,data.token,data.id,client)) return;
-
-                if (!this.sessionManager.join(client,data.id,data.username)) { client.send({noauth:true}); return; }
-                if(data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
-            },'joinSessions':(data,client)=>{
-                if (!Array.isArray(data.ids)) return;
-                if (!authenticate(data.username, data.token)) { client.send({ noauth: true }); return; }
-                let joined = false;
-                data.ids.slice(0, 50).forEach(id => {
-                    if (fullAuthenticate(data.username, data.token, id) && this.sessionManager.join(client, id, data.username)) joined = true;
-                });
-                if(joined && data.pk) { this.userManager.getUser(data.username).pk = data.pk; }
-            },
-            'leaveSession':(data,client)=>{
-                this.sessionManager.leave(client,data.id);
-            },
-            'projectChange':(data,client,callback)=>{
-                if(!this.requireProjectAccess(data.username,data.token,data.lsId,client)) return;
-                if (!this.socketJoinedAs(client, data.lsId, data.username)) { client.send({noauth:true}); return; }
-                this.sessionManager.projectChange(data.lsId,data,client);
-                if (typeof callback === 'function') callback(this.sessionManager.getVersion(data.lsId));
-            },
-            'setTitle':(data,client)=>{
-                if(!this.requireProjectAccess(data.username,data.token,data.lsId,client)) return;
-                if (!this.socketJoinedAs(client, data.lsId, data.username)) { client.send({noauth:true}); return; }
-                let project = this.sessionManager.getProject(data.lsId);
-                if(!project) {return;}
-                if (typeof data.msg?.title !== 'string') return;
-                data.msg.title = data.msg.title.slice(0, 200);
-                project.project.title = data.msg.title;
-                project.session.sendChangeFrom(client,data.msg,true);
-            },
-            'setCursor':(data,client)=>{ // doesnt need to be authenticated because relies on pre-authenticated join action
-                let project = this.sessionManager.getProject(data.lsId);
-                if(!project) {return;}
-                let cursor = project.session.getClientFromSocket(client)?.cursor;
-                if(!cursor) {return;}
-                if (!data.cursor || typeof data.cursor !== 'object') return;
-                Object.entries(data.cursor).forEach(e=>{
-                    if(e[0] in cursor) { cursor[e[0]] = e[1]; }
-                });
-            },
-            'chat': async (data,client)=>{
-                const BROADCAST_KEYWORD = 'toall ';
-
-                if (!data.msg?.msg || typeof data.msg.msg !== 'object') return;
-                delete data.msg.msg.linkify;
-                let text = String(data.msg.msg.text ?? '').slice(0, 2000);
-                let sender = data.msg.msg.sender;
-                let project = this.sessionManager.getProject(data.lsId);
-                if(!this.requireProjectAccess(sender,data.token,data.lsId,client)) return;
-                if (!this.socketJoinedAs(client, data.lsId, sender)) { client.send({noauth:true}); return; }
-                data.msg.msg.text = text;
-                if(admin.includes(sender?.toLowerCase()) && text.startsWith(BROADCAST_KEYWORD)) {
-                    let broadcast=text.slice(BROADCAST_KEYWORD.length);
-                    console.log(`broadcasting message to all users: "${broadcast}" [${sender}]`);
-                    postText(`broadcasting message to all users: "${broadcast}" [${sender}]`);
-                    this.sessionManager.broadcastMessageToAllActiveProjects(`${broadcast}`);
-                }
-                
-                const isVulgar = await this.filter.isVulgar(text);
-                if(isVulgar) {
-                    let sentTo = project.session.getConnectedUsernames().filter(uname=>uname!=sender?.toLowerCase());
-                    let loggingMsg = '🔴 FILTERED CHAT: ' + '"' + text + '" [' + sender + '->' + sentTo.join(',') + ' | scratchid: ' + project.scratchId + ']';
-                    
-                    text = await this.filter.getCensored(text);
-                    data.msg.msg.text = text;
-                    
-                    loggingMsg = loggingMsg + `\nCensored as: "${text}"`;
-                    console.error(loggingMsg);
-                    postText(loggingMsg);
-                }
-    
-                let banned = await fileStorageUtils.getBanned(false);
-                if(banned?.includes?.(sender)) {return;}
-    
-                project?.onChat(data.msg,client);
-                // logging
-                let sentTo = project.session.getConnectedUsernames().filter(uname=>uname!=sender?.toLowerCase());
-                let loggingMsg = '"' + text + '" [' + sender + '->' + sentTo.join(',') + ' | scratchid: ' + project.scratchId + ']';
-                console.log(loggingMsg);
-                postText(loggingMsg);
-            },
+        this.handlers = {
+            joinSession: this.joinSession.bind(this),
+            joinSessions: this.joinSessions.bind(this),
+            leaveSession: this.leaveSession.bind(this),
+            projectChange: this.projectChange.bind(this),
+            setTitle: this.setTitle.bind(this),
+            setCursor: this.setCursor.bind(this),
+            chat: this.chat.bind(this),
         };
 
-        this.ioHttp = ioHttp;
-        this.ioHttp.on('connection', this.onSocketConnection.bind(this));
+        this.io.on('connection', client => this.handleConnection(client));
+    }
+
+    joinSession(data, client) {
+        if (!this.requireProjectAccess(data.username, data.token, data.id, client)) return;
+        if (!this.sessionManager.join(client, data.id, data.username)) {
+            client.send({ noauth: true });
+            return;
+        }
+        this.saveProfileId(data.username, data.pk);
+    }
+
+    joinSessions(data, client) {
+        if (!Array.isArray(data.ids)) return;
+        if (!authenticate(data.username, data.token)) {
+            client.send({ noauth: true });
+            return;
+        }
+
+        let joined = false;
+        for (const projectId of data.ids.slice(0, 50)) {
+            if (fullAuthenticate(data.username, data.token, projectId)
+                && this.sessionManager.join(client, projectId, data.username)) {
+                joined = true;
+            }
+        }
+        if (joined) this.saveProfileId(data.username, data.pk);
+    }
+
+    leaveSession(data, client) {
+        this.sessionManager.leave(client, data.id);
+    }
+
+    projectChange(data, client, callback) {
+        if (!this.requireProjectAccess(data.username, data.token, data.lsId, client)) return;
+        if (!this.requireJoinedIdentity(client, data.lsId, data.username)) return;
+
+        this.sessionManager.projectChange(data.lsId, data, client);
+        if (typeof callback === 'function') callback(this.sessionManager.getVersion(data.lsId));
+    }
+
+    setTitle(data, client) {
+        if (!this.requireProjectAccess(data.username, data.token, data.lsId, client)) return;
+        if (!this.requireJoinedIdentity(client, data.lsId, data.username)) return;
+        if (typeof data.msg?.title !== 'string') return;
+
+        const project = this.sessionManager.getProject(data.lsId);
+        if (!project) return;
+
+        data.msg.title = data.msg.title.slice(0, 200);
+        project.project.title = data.msg.title;
+        project.session.sendChangeFrom(client, data.msg, true);
+    }
+
+    setCursor(data, client) {
+        if (!this.requireProjectAccess(data.username, data.token, data.lsId, client)) return;
+        if (!this.requireJoinedIdentity(client, data.lsId, data.username)) return;
+
+        const project = this.sessionManager.getProject(data.lsId);
+        const cursor = project?.session.getClientFromSocket(client)?.cursor;
+        if (!cursor || !data.cursor || typeof data.cursor !== 'object') return;
+
+        for (const [key, value] of Object.entries(data.cursor)) {
+            if (key in cursor) cursor[key] = value;
+        }
+    }
+
+    async chat(data, client) {
+        if (!data.msg?.msg || typeof data.msg.msg !== 'object') return;
+
+        const sender = data.msg.msg.sender;
+        if (!this.requireProjectAccess(sender, data.token, data.lsId, client)) return;
+        if (!this.requireJoinedIdentity(client, data.lsId, sender)) return;
+
+        const project = this.sessionManager.getProject(data.lsId);
+        if (!project) return;
+
+        delete data.msg.msg.linkify;
+        let text = String(data.msg.msg.text ?? '').slice(0, 2000);
+        data.msg.msg.text = text;
+
+        if (admins.includes(sender?.toLowerCase()) && text.startsWith(BROADCAST_PREFIX)) {
+            const broadcast = text.slice(BROADCAST_PREFIX.length);
+            const logMessage = `Broadcast from ${sender}: "${broadcast}"`;
+            console.log(logMessage);
+            postText(logMessage);
+            this.sessionManager.broadcastMessageToAllActiveProjects(broadcast);
+        }
+
+        const filterResult = await this.filter.checkContent(text);
+        if (filterResult.isBad) {
+            const originalText = text;
+            text = filterResult.censoredContent || text;
+            data.msg.msg.text = text;
+            const logMessage = `${this.formatChatLog(project, sender, originalText, 'FILTERED')}\nCensored as: "${text}"`;
+            console.warn(logMessage);
+            postText(logMessage);
+        }
+
+        const bannedUsers = getBanned(false).map(name => name.toLowerCase());
+        if (bannedUsers.includes(sender?.toLowerCase())) return;
+
+        project.onChat(data.msg, client);
+        const logMessage = this.formatChatLog(project, sender, text);
+        console.log(logMessage);
+        postText(logMessage);
+    }
+
+    formatChatLog(project, sender, text, prefix = 'CHAT') {
+        const normalizedSender = sender?.toLowerCase();
+        const recipients = project.session.getConnectedUsernames()
+            .filter(username => username !== normalizedSender);
+        return `${prefix}: "${text}" [${sender} -> ${recipients.join(', ')} | Scratch ${project.scratchId}]`;
+    }
+
+    saveProfileId(username, profileId) {
+        if (!profileId) return;
+        const user = this.userManager.getUser(username);
+        if (user) user.pk = profileId;
     }
 
     socketJoinedAs(client, projectId, username) {
         const member = this.sessionManager.getProject(projectId)?.session.getClientFromSocket(client);
-        return !!member && String(member.username).toLowerCase() === String(username).toLowerCase();
+        return Boolean(member) && String(member.username).toLowerCase() === String(username).toLowerCase();
+    }
+
+    requireJoinedIdentity(client, projectId, username) {
+        if (this.socketJoinedAs(client, projectId, username)) return true;
+        client.send({ noauth: true });
+        return false;
     }
 
     requireProjectAccess(username, token, projectId, client) {
@@ -120,29 +168,41 @@ export default class initSockets {
         return true;
     }
 
-    onSocketConnection(client) {
-        client.on('message',(data,callback)=>{
-            if(data.type in this.messageHandlers) {
+    recordActivity(data) {
+        const projectId = data.lsId ?? data.id;
+        if (!projectId) return;
 
-                // record analytic first to stop reloading after project leave
-                analytic: try{
-                    let id = data.lsId ?? data.id ?? null;
-                    if (!id) { break analytic; }
-                    let project = this.sessionManager.getProject(id);
-                    if (!project) { break analytic; }
-                    let connected = project.session?.getConnectedUsernames();
-                    connected?.forEach?.(username => {
-                        addRecent(username, connected.length>1, project.sharedWith.length);
-                    });
-                } catch (e) { console.error('error with analytic message tally'); console.error(e); }
+        const project = this.sessionManager.getProject(projectId);
+        const connected = project?.session.getConnectedUsernames();
+        if (!connected) return;
 
-                try{this.messageHandlers[data.type](data,client,callback);}
-                catch(e){console.error('error during messageHandler',e);}
-            } else { console.log('discarded unknown mesage type: ' + data.type); }
+        for (const username of connected) {
+            addRecent(username, connected.length > 1, project.sharedWith.length > 0);
+        }
+    }
+
+    handleConnection(client) {
+        client.on('message', (data, callback) => {
+            const handler = this.handlers[data?.type];
+            if (!handler) {
+                console.warn(`Discarded unknown socket message: ${data?.type}`);
+                return;
+            }
+
+            try {
+                this.recordActivity(data);
+            } catch (error) {
+                console.error('Could not record socket activity:', error);
+            }
+
+            try {
+                const result = handler(data, client, callback);
+                if (result?.catch) result.catch(error => console.error('Socket handler failed:', error));
+            } catch (error) {
+                console.error('Socket handler failed:', error);
+            }
         });
 
-        client.on('disconnect',(reason)=>{
-            this.sessionManager.disconnectSocket(client);
-        });
+        client.on('disconnect', () => this.sessionManager.disconnectSocket(client));
     }
 }

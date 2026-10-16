@@ -1,234 +1,224 @@
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
-import sanitize from 'sanitize-filename';
 import { randomUUID } from 'node:crypto';
+import sanitize from 'sanitize-filename';
 
 import { saveRecent } from './recentUsers.js';
-import { isFinalSaving } from '../index.js';
-import { deleteRedundantJson, readRedundantJson, seedAndRecoverDirectory, writeRedundantJson } from './redundantStorage.js';
+import {
+    deleteRedundantJson,
+    readRedundantJson,
+    seedAndRecoverDirectory,
+    writeRedundantJson,
+} from './redundantStorage.js';
 
-export const livescratchPath = 'storage/sessions/livescratch';
-export const scratchprojectsPath = 'storage/sessions/scratchprojects';
+export const projectStoragePath = 'storage/sessions/livescratch';
+export const projectLinksPath = 'storage/sessions/scratchprojects';
 export const lastIdPath = 'storage/sessions/lastId';
 export const usersPath = 'storage/users';
 export const bannedPath = 'storage/banned';
 
-function sleep(millis) {
-    return new Promise(res=>setTimeout(res,millis));
+const MAX_JSON_LENGTH = 51_428_000;
+const SAVE_INTERVAL_MS = 30_000;
+
+for (const directory of [projectStoragePath, projectLinksPath, usersPath]) {
+    fs.mkdirSync(directory, { recursive: true });
 }
 
-if(!fs.existsSync('storage')) {
-    fs.mkdirSync('storage');
+function sleep(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
-fs.mkdirSync('storage/sessions/scratchprojects', { recursive: true });
-fs.mkdirSync('storage/sessions/livescratch', { recursive: true });
-fs.mkdirSync(usersPath, { recursive: true });
 
-const redundantKindForDirectory = dir => {
-    const resolved = path.resolve(dir);
-    if (resolved === path.resolve(livescratchPath)) return 'projects';
-    if (resolved === path.resolve(scratchprojectsPath)) return 'scratchprojects';
+function recoveryKind(directory) {
+    const resolved = path.resolve(directory);
+    if (resolved === path.resolve(projectStoragePath)) return 'projects';
+    if (resolved === path.resolve(projectLinksPath)) return 'scratchprojects';
     if (resolved === path.resolve(usersPath)) return 'users';
     return null;
-};
+}
+
+function serializeEntry(key, value) {
+    const filename = sanitize(String(key));
+    const json = JSON.stringify(value);
+    if (!filename || json.length > MAX_JSON_LENGTH) return null;
+    return { filename, json };
+}
+
+function saveRecoveryCopy(directory, filename, json) {
+    const kind = recoveryKind(directory);
+    if (kind && !writeRedundantJson(kind, filename, json)) {
+        throw new Error(`Could not create recovery copy for ${kind}/${filename}`);
+    }
+}
 
 export function initializeStorageRecovery() {
-    const projects = seedAndRecoverDirectory(livescratchPath, 'projects');
-    const scratchprojects = seedAndRecoverDirectory(scratchprojectsPath, 'scratchprojects');
+    const projects = seedAndRecoverDirectory(projectStoragePath, 'projects');
+    const scratchprojects = seedAndRecoverDirectory(projectLinksPath, 'scratchprojects');
     const users = seedAndRecoverDirectory(usersPath, 'users');
     const recovered = projects.recovered + scratchprojects.recovered + users.recovered;
     if (recovered) console.warn(`Recovered ${recovered} storage record(s) from redundant copies.`);
     return { projects, scratchprojects, users };
 }
 
-export function readRecoveryCopy(dir, key, validator) {
-    const kind = redundantKindForDirectory(dir);
+export function readRecoveryCopy(directory, key, validator) {
+    const kind = recoveryKind(directory);
     return kind ? readRedundantJson(kind, key, { validator }) : null;
 }
 
-export function deleteRecoveryCopies(dir, key) {
-    const kind = redundantKindForDirectory(dir);
+export function deleteRecoveryCopies(directory, key) {
+    const kind = recoveryKind(directory);
     return kind ? deleteRedundantJson(kind, key) : false;
 }
 
-const bannedList = () => {
+function readBannedList() {
     try {
-        const data = fs.readFileSync(bannedPath, 'utf-8');
-        return data.split('\n').filter(line => line.trim() !== '');
-    } catch (err) {
-        if (err.code === 'ENOENT') return [];
-        throw err;
+        return fs.readFileSync(bannedPath, 'utf8')
+            .split('\n')
+            .map(username => username.trim())
+            .filter(Boolean);
+    } catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
     }
-};
-
-export function saveMapToFolder(obj, dir) {
-    // if obj is null, return
-    if(!obj) {console.error('tried to save null object to dir: ' + dir); return false;}
-    // make directory if it doesnt exist
-    if (!fs.existsSync(dir)){fs.mkdirSync(dir,{recursive:true});}
-    let success = true;
-    Object.entries(obj).forEach(entry=>{
-        let stringg = JSON.stringify(entry[1]);
-        entry[0] = sanitize(entry[0] + '');
-        if(entry[0] == '' || stringg.length > maxStringWriteLength) {
-            console.error(`skipping writing file "${entry[0]}" because its too long or noname`);
-            success = false;
-            return;
-        }
-        let temp;
-        try{
-            // console.log(`writing ${entry[0]}`)
-            const filename = dir + path.sep + entry[0];
-            temp = `${filename}.${randomUUID()}.tmp`;
-            fs.writeFileSync(temp, stringg);
-            fs.renameSync(temp, filename);
-            const kind = redundantKindForDirectory(dir);
-            if (kind && !writeRedundantJson(kind, entry[0], stringg)) throw new Error(`Could not create recovery copy for ${kind}/${entry[0]}`);
-        } catch (e) {
-            if (temp) { try { fs.rmSync(temp); } catch { /* ignored */ } }
-            success = false;
-            console.error('Error when saving filename: ' + entry[0]);
-            console.error(e);
-        }
-    });
-    return success;
 }
 
-const maxStringWriteLength = 51428000; //absolute max, hopefully never reached
-export async function saveMapToFolderAsync(obj, dir) {
-    // if obj is null, return
-    if(!obj) {console.warn('tried to save null object to dir: ' + dir); return false;}
-    // make directory if it doesnt exist
-    if (!fs.existsSync(dir)){fs.mkdirSync(dir,{recursive:true});}
-    let success = true;
-    for (let entry of Object.entries(obj)) {
-        let id = sanitize(entry[0] + '');
-        let stringg = JSON.stringify(entry[1]);
+export function saveMapToFolder(records, directory) {
+    if (!records) {
+        console.error(`Cannot save an empty record map to ${directory}.`);
+        return false;
+    }
 
-        if(!id || stringg.length >= maxStringWriteLength) {
-            console.error(`skipping writing project ${id} because its too long or noname`);
+    fs.mkdirSync(directory, { recursive: true });
+    let success = true;
+
+    for (const [key, value] of Object.entries(records)) {
+        const entry = serializeEntry(key, value);
+        if (!entry) {
+            console.error(`Skipped invalid or oversized record: ${key}`);
             success = false;
             continue;
         }
-        let filename = dir+path.sep+id;
-        const temp = `${filename}.${randomUUID()}.tmp`;
-        await fsp.writeFile(temp,stringg).then(() => fsp.rename(temp, filename)).then(() => {
-            const kind = redundantKindForDirectory(dir);
-            if (kind && !writeRedundantJson(kind, id, stringg)) throw new Error(`Could not create recovery copy for ${kind}/${id}`);
-        }).catch(async e=>{success = false;await fsp.rm(temp, { force: true }).catch(() => {});console.error('Error when saving filename:');console.error(e);});
+
+        const destination = path.join(directory, entry.filename);
+        const temporary = `${destination}.${randomUUID()}.tmp`;
+        try {
+            fs.writeFileSync(temporary, entry.json);
+            fs.renameSync(temporary, destination);
+            saveRecoveryCopy(directory, entry.filename, entry.json);
+        } catch (error) {
+            try {
+                fs.rmSync(temporary, { force: true });
+            } catch {
+                // The original write error is more useful than cleanup failure details.
+            }
+            console.error(`Could not save ${destination}:`, error);
+            success = false;
+        }
     }
+
     return success;
 }
-export function loadMapFromFolder(dir) {
-    let obj = {};
-    // check that directory exists, otherwise return empty obj
-    if(!fs.existsSync(dir)) {return obj;}
-    // add promises
-    fs.readdirSync(dir,{withFileTypes:true})
-        .filter(dirent=>dirent.isFile())
-        .map(dirent=>([dirent.name,fs.readFileSync(dir + path.sep + dirent.name)]))
-        .forEach(entry=>{
-            try{
-                obj[entry[0]] = JSON.parse(entry[1]); // parse file to object
-            } catch (e) {
-                console.error('json parse error on file: ' + dir + path.sep + '\x1b[1m' /* <- bold */ + entry[0] + '\x1b[0m' /* <- reset */);
-                // Keep damaged data for recovery rather than deleting it during startup.
-            }
-        });
-    return obj;
+
+export async function saveMapToFolderAsync(records, directory) {
+    if (!records) {
+        console.error(`Cannot save an empty record map to ${directory}.`);
+        return false;
+    }
+
+    await fsp.mkdir(directory, { recursive: true });
+    let success = true;
+
+    for (const [key, value] of Object.entries(records)) {
+        const entry = serializeEntry(key, value);
+        if (!entry) {
+            console.error(`Skipped invalid or oversized record: ${key}`);
+            success = false;
+            continue;
+        }
+
+        const destination = path.join(directory, entry.filename);
+        const temporary = `${destination}.${randomUUID()}.tmp`;
+        try {
+            await fsp.writeFile(temporary, entry.json);
+            await fsp.rename(temporary, destination);
+            saveRecoveryCopy(directory, entry.filename, entry.json);
+        } catch (error) {
+            await fsp.rm(temporary, { force: true }).catch(() => {});
+            console.error(`Could not save ${destination}:`, error);
+            success = false;
+        }
+    }
+
+    return success;
 }
 
-export function loadMapFromFolderRecursive(dir) {
-    let obj = {};
- 
-    // Check that the directory exists; otherwise, return an empty object
-    if (!fs.existsSync(dir)) {
-        return obj;
+export function loadMapFromFolder(directory) {
+    if (!fs.existsSync(directory)) return {};
+
+    const records = {};
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const filename = path.join(directory, entry.name);
+        try {
+            records[entry.name] = JSON.parse(fs.readFileSync(filename, 'utf8'));
+        } catch (error) {
+            console.error(`Could not parse JSON file ${filename}:`, error.message);
+        }
     }
- 
-    // Read directory contents
-    const dirents = fs.readdirSync(dir, { withFileTypes: true });
- 
-    for (const dirent of dirents) {
-        const fullPath = path.join(dir, dirent.name);
- 
-        if (dirent.isFile()) {
+    return records;
+}
+
+export function loadMapFromFolderRecursive(directory) {
+    if (!fs.existsSync(directory)) return {};
+
+    const records = {};
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const entryPath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+            records[entry.name] = loadMapFromFolderRecursive(entryPath);
+            continue;
+        }
+        if (!entry.isFile()) continue;
+
+        try {
+            records[entry.name] = entry.name === 'banned'
+                ? readBannedList()
+                : JSON.parse(fs.readFileSync(entryPath, 'utf8'));
+        } catch (error) {
+            console.error(`Could not parse JSON file ${entryPath}:`, error.message);
+        }
+    }
+    return records;
+}
+
+export async function saveLoop(isFinalSaving = () => false) {
+    while (true) {
+        if (!isFinalSaving()) {
             try {
-                // Parse the file's contents as JSON
-                if (dirent.name=='banned') {
-                    obj[dirent.name] = bannedList();
-                } else {
-                    const content = fs.readFileSync(fullPath, 'utf8');
-                    obj[dirent.name] = JSON.parse(content);
-                }
-            } catch (e) {
-                console.error(
-                    'JSON parse error on file: ' +
-                     fullPath +
-                     '\x1b[1m' + // bold text
-                     dirent.name +
-                     '\x1b[0m', // reset text
-                );
-                // Keep damaged data for recovery rather than deleting it during startup.
+                await saveRecent();
+            } catch (error) {
+                console.error('Periodic save failed:', error);
             }
-        } else if (dirent.isDirectory()) {
-            // If it's a directory, call the function recursively
-            obj[dirent.name] = loadMapFromFolderRecursive(fullPath);
         }
-    }
- 
-    return obj;
-}
-
-async function saveAsync(sessionManager) {
-    if(isFinalSaving) {return;} // dont final save twice
-
-    console.log('saving now...');
-    await sleep(10); // in case there is an error that nans lastid out
-
-    // DONT SAVE LIVESCRATCH PROJECTS BECAUSE ITS TOO COMPUTATIONALLY EXPENSIVE AND IT HAPPENS ANYWAYS ON OFFLOAD
-
-    await saveRecent();
-}
-export async function saveLoop(sessionManager) {
-    while(true) {
-        try{ await saveAsync(sessionManager); } 
-        catch (e) { console.error(e); }
-        await sleep(30 * 1000);
+        await sleep(SAVE_INTERVAL_MS);
     }
 }
 
-export function ban(username) {
-    return new Promise((resolve, reject) => {
-        try {
-            if(!(bannedList().includes(username))) {
-                fs.writeFileSync(bannedPath, (username + '\n'), { flag: 'a' });
-            }
-            resolve();
-        } catch(err) {
-            reject(err);
-        }
-    });
-}
-
-export function unban(username) {
-    return new Promise((resolve, reject) => {
-        try {
-            const banned = bannedList();
-            const updatedList = banned.filter(user => user !== username);
-            fs.writeFileSync(bannedPath, updatedList.join('\n'), 'utf-8');
-            resolve();
-        } catch(err) {
-            reject(err);
-        }
-    });
-}
-
-export function getBanned(promise = true) {
-    if (!promise) {
-        return bannedList();
+export async function ban(username) {
+    const banned = readBannedList();
+    if (!banned.includes(username)) {
+        await fsp.mkdir(path.dirname(bannedPath), { recursive: true });
+        await fsp.appendFile(bannedPath, `${username}\n`);
     }
- 
-    return Promise.resolve(bannedList());
+}
+
+export async function unban(username) {
+    const updatedList = readBannedList().filter(user => user !== username);
+    await fsp.mkdir(path.dirname(bannedPath), { recursive: true });
+    await fsp.writeFile(bannedPath, updatedList.join('\n'), 'utf8');
+}
+
+export function getBanned(asPromise = true) {
+    const banned = readBannedList();
+    return asPromise ? Promise.resolve(banned) : banned;
 }

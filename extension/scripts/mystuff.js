@@ -1,34 +1,32 @@
-console.log('mystuff inject started');
 
 // get exId
 const exId = document.querySelector('.livescratch-ext').dataset.exId;
 
 ////////// INJECT UTILS //////////
 
-let queryList = [];
+const queryList = [];
 function mutationCallback() {
-    let toDelete = [];
+    const toDelete = [];
     queryList.forEach(query => {
-        let elem = document.querySelector(query.query);
+        const elem = document.querySelector(query.query);
         if (elem && !elem.lsSeen) {
-            if (query.once) { toDelete.push(query); }
-            else { elem.lsSeen = true; }
+            if (query.once) { toDelete.push(query); } else { elem.lsSeen = true; }
             query.callback(elem);
         }
     });
     toDelete.forEach(query => { queryList.splice(queryList.indexOf(query), 1); });
 }
-let observer = new MutationObserver(mutationCallback);
+const observer = new MutationObserver(mutationCallback);
 observer.observe(document.documentElement, { subtree: true, childList: true });
 function getObj(query) {
-    let obj = document.querySelector(query);
+    const obj = document.querySelector(query);
     if (obj) { return new Promise(res => { res(obj); }); }
     return new Promise(res => {
         queryList.push({ query, callback: res, once: true });
     });
 }
 function listenForObj(query, callback) {
-    let obj = document.querySelector(query);
+    const obj = document.querySelector(query);
     if (obj) { obj.lsSeen = true; callback(obj); }
     queryList.push({ query, callback, once: false });
 }
@@ -44,7 +42,6 @@ function getBlMyStuff() {
 }
 
 function leaveId(id, div) {
-    console.log(id, lsProjectDivs);
     if (id in lsProjectDivs) {
         document.querySelector('#main-content > div.media-list > ul').insertBefore(lsProjectDivs[id], div);
     }
@@ -52,7 +49,7 @@ function leaveId(id, div) {
 }
 
 function sendLeave(scratchId, lsId) {
-    const index = lsMySTuff.findIndex(item => item.scratchId == scratchId);
+    const index = lsMySTuff.findIndex(item => String(item.scratchId) === String(scratchId));
     if (index !== -1) lsMySTuff.splice(index, 1);
     if (lsId) {
         chrome.runtime.sendMessage(exId, { meta: 'leaveLSId', lsId });
@@ -86,7 +83,7 @@ function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, 
     lsId = sanitize(lsId);
     lastModBy = sanitize(lastModBy);
 
-    let gunkId = Math.random().toString(36).substring(2);
+    const gunkId = Math.random().toString(36).substring(2);
     generateActiveUsersPanel(online).then(panel => {
         const container = document.getElementById(gunkId);
         if (container) container.innerHTML = panel;
@@ -153,7 +150,7 @@ async function generateActiveUsersPanel(active) {
     }
 }
 
-let pageCss = `
+const pageCss = `
 
   .onlineBubble{
     height:26px;
@@ -253,10 +250,10 @@ injectStyle();
 // https://stackoverflow.com/questions/3177836/how-to-format-time-since-xxx-e-g-4-minutes-ago-similar-to-stack-exchange-site
 function timeSince(date) {
 
-    var seconds = Math.floor((new Date() - date) / 1000);
+    const seconds = Math.floor((new Date() - date) / 1000);
     if (seconds < 0) { return 'zero seconds'; }
 
-    var interval = seconds / 31536000;
+    let interval = seconds / 31536000;
 
     if (interval > 1) {
         return Math.floor(interval) + ' years';
@@ -285,17 +282,17 @@ function getId(listItem) {
 }
 
 
-let oldAttrs = {};
-async function convertToLivescratch(listItem, projectObj) {
+const oldAttrs = {};
+async function convertToCoBlocks(listItem, projectObj) {
     listItem.classList.add('ls-project-row');
-    let atts = {};
+    const atts = {};
     atts.color = listItem.children[0].children[1].children[0].children[0].style.color;
     listItem.children[0].children[1].children[0].children[0].style.color = 'rgb(88, 193, 152)';
     listItem.children[0].children[2].children[0].children[0].style.color = 'rgb(88, 193, 152)';
 
     atts.buttonText = listItem.children[0].children[2].children[0].children[0].innerText;
     listItem.children[0].children[2].children[0].children[0].innerText = 'Unlink';
-    listItem.children[0].children[2].children[0].children[0].onclick = (e) => {cleanseOfLivescratchness(projectObj.scratchId, listItem); sendLeave(projectObj.scratchId, projectObj.lsId); e.stopPropagation();  };
+    listItem.children[0].children[2].children[0].children[0].onclick = (e) => { removeCoBlocksProjectState(projectObj.scratchId, listItem); sendLeave(projectObj.scratchId, projectObj.lsId); e.stopPropagation(); };
     atts.title = listItem.children[0].children[1].children[0].children[0].innerText;
     listItem.children[0].children[1].children[0].children[0].innerText = projectObj.title;
 
@@ -304,14 +301,14 @@ async function convertToLivescratch(listItem, projectObj) {
 
     oldAttrs[projectObj.scratchId] = atts;
 
-    let seeInside = listItem.querySelector('a span');
-    let activeUsersPanel = await generateActiveUsersPanel(projectObj.online);
+    const seeInside = listItem.querySelector('a span');
+    const activeUsersPanel = await generateActiveUsersPanel(projectObj.online);
     seeInside.insertAdjacentHTML('afterend', activeUsersPanel);
 
 
 }
-function cleanseOfLivescratchness(scratchId, listItem) {
-    let atts = oldAttrs[scratchId];
+function removeCoBlocksProjectState(scratchId, listItem) {
+    const atts = oldAttrs[scratchId];
     if (!atts) { return; }
     listItem.children[0].children[1].children[0].children[0].style.color = atts.color;
     listItem.children[0].children[2].children[0].children[0].style.color = atts.color;
@@ -323,7 +320,7 @@ function cleanseOfLivescratchness(scratchId, listItem) {
 }
 
 function addProject(projectObj, projectExists) {
-    let newBox = document.createElement('li');
+    const newBox = document.createElement('li');
     newBox.className = 'ls-project-row';
     newBox.innerHTML = getbox(projectObj.lsId, projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online);
     newBox.querySelector('.media-trash')?.addEventListener('click', () => {
@@ -364,7 +361,7 @@ function getWithPic(user) {
 
 let lsMySTuff;
 let lsMyStuffMap = {};
-let lsProjectDivs = {};
+const lsProjectDivs = {};
 let projectLoadFailed = false;
 async function onTabLoad() {
     lsMySTuff = await getBlMyStuff();
@@ -373,25 +370,24 @@ async function onTabLoad() {
         if (!document.querySelector('#tabs > li.first.active')) { return; } // return if "all projects" not selected
         lsMyStuffMap = {};
         lsMySTuff.forEach(projObj => { lsMyStuffMap[projObj.scratchId] = projObj; });
-        let toDelete = [];
-        for (let child of list.children) {
-            let scratchId = getId(child);
-            let livescratchProject = lsMyStuffMap[scratchId];
-            if (livescratchProject) {
-                if (Date.now() - livescratchProject.lastTime < 1000 * 60 * 60 * 2) { // if project was edited less than 2 hours ago
+        const toDelete = [];
+        for (const child of list.children) {
+            const scratchId = getId(child);
+            const coblocksProject = lsMyStuffMap[scratchId];
+            if (coblocksProject) {
+                if (Date.now() - coblocksProject.lastTime < 1000 * 60 * 60 * 2) { // if project was edited less than 2 hours ago
                     toDelete.push(child);
                     lsProjectDivs[scratchId] = child;
                 } else {
-                    convertToLivescratch(child, livescratchProject);
+                    convertToCoBlocks(child, coblocksProject);
                     delete lsMyStuffMap[scratchId];
                 }
             }
         }
         toDelete.forEach(elem => { elem.remove(); });
-        let leftOver = Object.values(lsMyStuffMap);
+        const leftOver = Object.values(lsMyStuffMap);
         leftOver.sort((a, b) => b.lastTime - a.lastTime);
-        for (let projObj of leftOver) {
-            console.log(projObj.scratchId);
+        for (const projObj of leftOver) {
             addProject(projObj, projObj.scratchId in lsProjectDivs);
         }
     });
@@ -412,14 +408,14 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
             document.querySelector('#unverified')?.remove();
             if (success) {
                 newVerified = true;
-                removeHideLivescratchButton();
+                removeHideCoBlocksButton();
                 document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="lsSuccess" style="background:#77da77; color:white;"> ✅ You\'re verified! <div>');
                 if (projectLoadFailed) { onTabLoad(); }
-                removeHideLivescratchButton();
+                removeHideCoBlocksButton();
                 setTimeout(() => { document.querySelector('#lsSuccess')?.remove(); }, 1000 * 2);
             } else {
                 document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="unverified" style="background:#b63b3b; color:white;">CoBlocks sign in failed. Open the extension popup and try Scratch Auth again.</div>');
-        
+
             }
         });
 
@@ -427,8 +423,6 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
 
 
         chrome.runtime.sendMessage(exId, { meta: 'verifying' }, (verifying) => {
-            console.log('vf',verifying);
-            console.log('verifying',verifying);
             if (verifying) {
                 document.querySelector('#verifying')?.remove();
                 document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#e7a91b; color:white;">CoBlocks sign in is in progress…</div>');
@@ -453,32 +447,33 @@ function addEndVerificationCallback(cb) {
 onTabLoad();
 
 
-var LSVon = false;
-function addHideLivescratchButton(on) {
-    window.LSVon = on;
-    let innerds = on ? 'Hide Verify ^' : 'Show Verify';
+let LSVon = false;
+function addHideCoBlocksButton(on) {
+    LSVon = on;
+    const innerds = on ? 'Hide Verify ^' : 'Show Verify';
     document.getElementById('hideBLButton')?.remove();
     document.querySelector('#main-content > div.action-bar.scroll > div > div').insertAdjacentHTML('afterend', `
     <span class="hideButton" id="hideBLButton" style="text-decoration:underline; cursor:pointer;
-  color:lightblue" onclick="(()=>{chrome.runtime.sendMessage(exId,{meta:'dontShowVerifyError',val:${!on}}); toggleHideLivescratch()})();">${innerds}</span>`);
+  color:lightblue" onclick="(()=>{chrome.runtime.sendMessage(exId,{meta:'dontShowVerifyError',val:${!on}}); toggleHideCoBlocks()})();">${innerds}</span>`);
 
     document.getElementById('lsBannerCSS')?.remove();
     document.head.insertAdjacentHTML('afterbegin', on ? '<style id="lsBannerCSS">.lsBanner{display:default}</style>' : '<style id="lsBannerCSS">.lsBanner{display:none}</style>');
 
 }
-function toggleHideLivescratch() {
-    addHideLivescratchButton(!LSVon);
+function toggleHideCoBlocks() {
+    addHideCoBlocksButton(!LSVon);
 }
 let actuallyShown = false;
-function defaultAddHideLivescratchButton(hideButton) {
-    if(!hideButton) {actuallyShown = true;}
-    chrome.runtime.sendMessage(exId, { meta: 'getShowVerifyError' }, answer => {addHideLivescratchButton(answer);
-        if (hideButton && !actuallyShown) { removeHideLivescratchButton(); }
+function defaultAddHideCoBlocksButton(hideButton) {
+    if (!hideButton) { actuallyShown = true; }
+    chrome.runtime.sendMessage(exId, { meta: 'getShowVerifyError' }, answer => {
+        addHideCoBlocksButton(answer);
+        if (hideButton && !actuallyShown) { removeHideCoBlocksButton(); }
     });
 
 }
-function removeHideLivescratchButton() {
+function removeHideCoBlocksButton() {
     document.getElementById('hideBLButton')?.remove();
 }
 
-defaultAddHideLivescratchButton(true); // just to add styles
+defaultAddHideCoBlocksButton(true); // just to add styles

@@ -1,65 +1,62 @@
-console.log('livescratch Editor Inject Running...');
 // get exId
 const exId = document.querySelector('.livescratch-ext').dataset.exId;
 let apiUrl = '';
 const logoUrl = document.querySelector('.livescratch-ext-2')?.dataset.logoUrl || '';
-chrome.runtime.sendMessage(exId, {meta: 'getAPI-URL'}, function(response){
+chrome.runtime.sendMessage(exId, { meta: 'getAPI-URL' }, function(response) {
     apiUrl = response.apiURL;
 });
 
-chrome.runtime.sendMessage(exId,{meta:'getUsernamePlus'},(userData)=>{apiUrl = userData.apiUrl;});
+chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => { apiUrl = userData.apiUrl; });
 
 //////////// TRAP UTILS ///////////
 
 function sleep(millis) {
-    return new Promise(res=>setTimeout(res,millis));
+    return new Promise(res => setTimeout(res, millis));
 }
 let revertJSON = null;
-let queryList = [];
+const queryList = [];
 let bl_projectId = null;
 store = null;
 let playAfterDragStop = [];
-let finishedSavingCB = [];
+const finishedSavingCB = [];
 function mutationCallback() {
-    if(typeof BL_UTILS == 'object'){
-        if(!BL_UTILS.isDragging() && playAfterDragStop.length > 0) {
-            playAfterDragStop.forEach(msg=>{livescratchListener(msg);});
+    if (typeof BL_UTILS === 'object') {
+        if (!BL_UTILS.isDragging() && playAfterDragStop.length > 0) {
+            playAfterDragStop.forEach(msg => { collaborationListener(msg); });
             playAfterDragStop = [];
         }
     }
-    if(bl_projectId && store?.getState().preview.projectInfo.id != bl_projectId) {location.reload();}
+    if (bl_projectId && String(store?.getState().preview.projectInfo.id) !== String(bl_projectId)) location.reload();
     bl_projectId = store?.getState().preview.projectInfo.id;
-    let toDelete = [];
-    queryList.forEach(query=>{
-        let elem = document.querySelector(query.query);
-        if(elem && !elem.lsSeen) {
-            if(query.once){toDelete.push(query);}
-            else {elem.lsSeen = true;}
+    const toDelete = [];
+    queryList.forEach(query => {
+        const elem = document.querySelector(query.query);
+        if (elem && !elem.lsSeen) {
+            if (query.once) { toDelete.push(query); } else { elem.lsSeen = true; }
             query.callback(elem);
         }
     });
-    toDelete.forEach(query=>{queryList.splice(queryList.indexOf(query),1);});
+    toDelete.forEach(query => { queryList.splice(queryList.indexOf(query), 1); });
 }
-let observer = new MutationObserver(mutationCallback);
-observer.observe(document.documentElement,{ subtree: true, childList: true });
+const observer = new MutationObserver(mutationCallback);
+observer.observe(document.documentElement, { subtree: true, childList: true });
 function getObj(query) {
-    let obj = document.querySelector(query);
-    if(obj) {return new Promise(res=>{res(obj);});}
-    return new Promise(res=>{
-        queryList.push({query,callback:res,once:true});
+    const obj = document.querySelector(query);
+    if (obj) { return new Promise(res => { res(obj); }); }
+    return new Promise(res => {
+        queryList.push({ query, callback: res, once: true });
     });
 }
-function listenForObj(query,callback) {
-    let obj = document.querySelector(query);
-    if(obj) {obj.lsSeen = true; callback(obj);}
-    queryList.push({query,callback,once:false});
+function listenForObj(query, callback) {
+    const obj = document.querySelector(query);
+    if (obj) { obj.lsSeen = true; callback(obj); }
+    queryList.push({ query, callback, once: false });
 }
 
 function waitFor(lambda) {
-    return new Promise(async res=>{
+    return new Promise(async res => {
         let output;
-        while(!(output = lambda())) {
-            // console.log('waiting for lambda resolve: ' + lambda)
+        while (!(output = lambda())) {
             await sleep(100);
         }
         res(output);
@@ -72,48 +69,45 @@ function waitFor(lambda) {
 
 // Connect To Background Script
 // var port = chrome.runtime.connect(exId);
-var port;
-var isConnected = false;
+let port;
+let isConnected = false;
 
-function liveMessage(message,res) {
-    if(livescratchDeleted) {return;}
+function liveMessage(message, res) {
+    if (coblocksDisabled) { return; }
     reconnectIfNeeded();
-    let msg = message;
-    if(msg.meta=='blockly.event' || msg.meta=='sprite.proxy'||msg.meta=='vm.blockListen'||msg.meta=='vm.shareBlocks' ||msg.meta=='vm.replaceBlocks' ||msg.meta=='vm.updateBitmap'||msg.meta=='vm.updateSvg' ||msg.meta=='version++') {
+    const msg = message;
+    if (msg.meta === 'blockly.event' || msg.meta === 'sprite.proxy' || msg.meta === 'vm.blockListen' || msg.meta === 'vm.shareBlocks' || msg.meta === 'vm.replaceBlocks' || msg.meta === 'vm.updateBitmap' || msg.meta === 'vm.updateSvg' || msg.meta === 'version++') {
         lsVersion++;
     }
-    port.postMessage(message,res);
+    port.postMessage(message, res);
 }
 
-let livescratchListener;
+let collaborationListener;
 
-let registerChromePortListeners = ()=> {
-    if(livescratchDeleted) {return;}
-    port.onMessage.addListener((...args)=>{livescratchListener(...args);});
-    port.onDisconnect.addListener(()=>{
+const registerChromePortListeners = () => {
+    if (coblocksDisabled) { return; }
+    port.onMessage.addListener((...args) => { collaborationListener(...args); });
+    port.onDisconnect.addListener(() => {
         isConnected = false;
     });
 };
 // registerChromePortListeners()
 
 function reconnectIfNeeded() {
-    if(livescratchDeleted) {return;}
-    if(!isConnected) {
-        port = chrome.runtime.connect(exId); 
-        isConnected = (!!port); 
-        if(isConnected){
+    if (coblocksDisabled) { return; }
+    if (!isConnected) {
+        port = chrome.runtime.connect(exId);
+        isConnected = (!!port);
+        if (isConnected) {
             registerChromePortListeners();
-            liveMessage({meta:'myId',id:lsId});
-            liveMessage({meta:'joinSession'}); // TODO: maybe do away with sending join message?
-            if(readyToRecieveChanges){getAndPlayNewChanges();}
+            liveMessage({ meta: 'myId', id: lsId });
+            liveMessage({ meta: 'joinSession' }); // TODO: maybe do away with sending join message?
+            if (readyToRecieveChanges) { getAndPlayNewChanges(); }
         }
     }
 }
 
-///.......... LIVESCRATCH CHECKING ........... //
-
-var livescratchServer;
-
+// CoBlocks project state
 
 let lsId = '';
 lsVersion = 0;
@@ -121,15 +115,15 @@ scratchId = location.pathname.split('/')[2]; //TODO: use better method?
 // scratchId = '644532638'
 let pauseEventHandling = false;
 let projectReplaceInitiated = false;
-let onceProjectLoaded = [];
+const onceProjectLoaded = [];
 let vm;
 let readyToRecieveChanges = false;
 let localRecoveryTimer;
 
 function cacheCurrentProjectLocally() {
-    if (!lsId || !vm || livescratchDeleted) return;
+    if (!lsId || !vm || coblocksDisabled) return;
     try {
-        chrome.runtime.sendMessage(exId, { meta:'cacheProjectLocally', lsId, scratchId, json:vm.toJSON(), version:lsVersion });
+        chrome.runtime.sendMessage(exId, { meta: 'cacheProjectLocally', lsId, scratchId, json: vm.toJSON(), version: lsVersion });
     } catch (error) { console.error('Could not prepare local CoBlocks recovery snapshot:', error); }
 }
 
@@ -141,45 +135,44 @@ function startLocalRecoverySnapshots() {
     });
 }
 
-let reloadAfterRestart=false;
-async function startLivescratch(creatingNew) {
-    livescratchDeleted=false;
+let reloadAfterRestart = false;
+async function startCoBlocks(creatingNew) {
+    coblocksDisabled = false;
     pauseEventHandling = true;
-    liveMessage({meta:'myId',id:lsId});
+    liveMessage({ meta: 'myId', id: lsId });
     injectLoadingOverlay();
 
-    activateLivescratch();
+    activateCoBlocks();
     setTopbarButtonVisibility();
-    
-    if(creatingNew || store.getState().scratchGui.projectState.loadingState.startsWith('SHOWING')) {
-        console.log('project already loaded!');
-        if(projectReplaceInitiated) { return; }
-        await joinExistingLivescratch(lsId);
+
+    if (creatingNew || store.getState().scratchGui.projectState.loadingState.startsWith('SHOWING')) {
+        if (projectReplaceInitiated) { return; }
+        await joinExistingCoBlocks(lsId);
         pauseEventHandling = false;
     } else {
         vm.runtime.on('PROJECT_LOADED', async () => { // todo catch this running after project loads
-            if(projectReplaceInitiated) { return; }
-            await joinExistingLivescratch(lsId);
+            if (projectReplaceInitiated) { return; }
+            await joinExistingCoBlocks(lsId);
             pauseEventHandling = false;
         });
     }
-    if(creatingNew) {
+    if (creatingNew) {
         // addToCredits('Made with BIocklive #blklv')
         creditCollabers([uname]);
     }
 }
 
-let livescratchDeleted=false;
+let coblocksDisabled = false;
 async function onTabLoad() {
     // Get usable scratch id
     // await waitFor(()=>{!isNaN(parseFloat(location.pathname.split('/')[2]))})
     // scratchId = location.pathname.split('/')[2]
-    waitFor(()=>(!isNaN(parseFloat(location.pathname.split('/')[2])))).then(()=>{scratchId = location.pathname.split('/')[2];});
+    waitFor(() => (!isNaN(parseFloat(location.pathname.split('/')[2])))).then(() => { scratchId = location.pathname.split('/')[2]; });
 
     // trap vm and store
-    let reactElem = await getObj('div[class^="stage-header_stage-menu-wrapper_"]');
-    let reactKey = Object.keys(reactElem).find(k => k.startsWith('__reactFiber'));
-    let reactInst = reactElem[reactKey];
+    const reactElem = await getObj('div[class^="stage-header_stage-menu-wrapper_"]');
+    const reactKey = Object.keys(reactElem).find(k => k.startsWith('__reactFiber'));
+    const reactInst = reactElem[reactKey];
     let reactLoopInst = reactInst;
     while (reactLoopInst && (!reactLoopInst.memoizedProps || !reactLoopInst.memoizedProps.vm)) {
         reactLoopInst = reactLoopInst.child;
@@ -191,43 +184,43 @@ async function onTabLoad() {
         reactLoopInst = reactLoopInst.child;
     }
     store = reactLoopInst.dependencies.firstContext.memoizedValue.store;
-    injectLivescratchStyles();
+    injectCoBlocksStyles();
     addButtonInjectors();
-    lsId = isNaN(parseFloat(location.pathname.split('/')[2])) ? '' : await getLivescratchId(scratchId); //todo: should this use the result of the getLsId function, or a more specific endpoint to authenticating project joining?
-    if(!lsId) {
-        chrome.runtime.sendMessage(exId,{meta:'callback'},(request) => { if(request.meta == 'initLivescratch') { 
-            lsId = request.lsId;
-            startLivescratch(true);}});
+    lsId = isNaN(parseFloat(location.pathname.split('/')[2])) ? '' : await getCoBlocksProjectId(scratchId); //todo: should this use the result of the getLsId function, or a more specific endpoint to authenticating project joining?
+    if (!lsId) {
+        chrome.runtime.sendMessage(exId, { meta: 'callback' }, (request) => {
+            if (request.meta === 'initCoBlocks') {
+                lsId = request.lsId;
+                startCoBlocks(true);
+            }
+        });
     }
-    if(!!lsId) {
-        startLivescratch();
+    if (!!lsId) {
+        startCoBlocks();
     } else {
     }
 }
 
 onTabLoad();
 
-async function joinExistingLivescratch(id) {
+async function joinExistingCoBlocks(id) {
     projectReplaceInitiated = true;
-    console.log('joining livescratch id',id);
     startBLLoadingAnimation();
     // let inpoint = await getInpoint(id)
-    let inpoint = await getJson(id, scratchId);
+    const inpoint = await getJson(id, scratchId);
 
-    if(!inpoint || inpoint.err || inpoint.noauth) {
+    if (!inpoint || inpoint.err || inpoint.noauth) {
         alert('Could not join CoBlocks project ' + id + '.\n\nError: ' + (inpoint?.err || 'The project could not be authenticated.'));
         finishBLLoadingAnimation();
         pauseEventHandling = false;
         vm.refreshWorkspace();
-        removeLivescratchButtons();
+        removeCoBlocksButtons();
         return;
     }
-    let projectJson = inpoint.json;
+    const projectJson = inpoint.json;
     pauseEventHandling = true;
     const originalProjectJson = vm.toJSON();
     try {
-    // console.log('downloading scratch id',inpoint.scratchId)
-        console.log('loading scratch project inpoint',inpoint);
         revertJSON = originalProjectJson;
         await vm.loadProject(projectJson);
         lsVersion = Number.isFinite(Number(inpoint.version)) ? Number(inpoint.version) : 0;
@@ -237,7 +230,7 @@ async function joinExistingLivescratch(id) {
         alert(`CoBlocks refused a damaged project snapshot and restored the project that was already open.\n\nError: ${e}`);
         pauseEventHandling = false;
         readyToRecieveChanges = false;
-        removeLivescratchButtons();
+        removeCoBlocksButtons();
         vm.refreshWorkspace();
         return;
     }
@@ -247,33 +240,32 @@ async function joinExistingLivescratch(id) {
         pauseEventHandling = false;
         readyToRecieveChanges = false;
         alert('CoBlocks recovered this project from the local browser backup. The server copy is unavailable, so live collaboration is paused. Save the Scratch project now to keep this recovered copy.');
-        removeLivescratchButtons();
+        removeCoBlocksButtons();
         vm.refreshWorkspace();
         return;
     }
 
-    console.log('syncing new changes, editingTarget: ',vm.editingTarget);
     await getAndPlayNewChanges(); // sync changes since scratch version
     finishBLLoadingAnimation();
-    liveMessage({meta:'joinSession'}); // join sessionManager session
+    liveMessage({ meta: 'joinSession' }); // join sessionManager session
     readyToRecieveChanges = true;
     pauseEventHandling = false;
     // hackyRefreshFlyoutVariables()
 
-    setTimeout(BL_UTILS.refreshFlyout,100); // todo figure way other than timeout
+    setTimeout(BL_UTILS.refreshFlyout, 100); // todo figure way other than timeout
 
 }
 
-function unshareLivescratch() {
+function unlinkCoBlocks() {
     if (!confirm('Unlink this Scratch project from CoBlocks? Collaborators will lose access to this copy.')) return;
-    chrome.runtime.sendMessage(exId,{meta:'leaveScratchId',scratchId});
-    removeLivescratchButtons();
-    livescratchDeleted=true;
+    chrome.runtime.sendMessage(exId, { meta: 'leaveScratchId', scratchId });
+    removeCoBlocksButtons();
+    coblocksDisabled = true;
     port.disconnect();
 }
 
-function removeLivescratchButtons() {
-    try{
+function removeCoBlocksButtons() {
+    try {
 
         // document.querySelector("#app > div > div.gui_menu-bar-position_3U1T0.menu-bar_menu-bar_JcuHF.box_box_2jjDp > div.menu-bar_main-menu_3wjWH > livescratchcontainer")?.remove()
         document.querySelector('#lsRevert')?.remove();
@@ -284,82 +276,77 @@ function removeLivescratchButtons() {
         resizeEditorForBackpack();
 
         lsDropdown.style.display = 'none';
-        livescratchButton.onclick = lsActivateClick;
+        coblocksButton.onclick = lsActivateClick;
 
-    } catch(e) {console.error(e);}
-    lsId=null;
+    } catch (e) { console.error(e); }
+    lsId = null;
 }
 
-function getLivescratchId(scratchId) {
-    return new Promise((promRes)=>{
-        chrome.runtime.sendMessage(exId,{meta:'getLsId',scratchId},promRes);
+function getCoBlocksProjectId(scratchId) {
+    return new Promise((promRes) => {
+        chrome.runtime.sendMessage(exId, { meta: 'getLsId', scratchId }, promRes);
     });
 }
 // function getInpoint(livescratchId) {
 //     return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getInpoint',lsId:livescratchId},res)})
 // }
 function getJson(livescratchId, currentScratchId) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getJson',lsId:livescratchId,scratchId:currentScratchId},res);});
+    return new Promise((res) => { chrome.runtime.sendMessage(exId, { meta: 'getJson', lsId: livescratchId, scratchId: currentScratchId }, res); });
 }
-function getChanges(lsId,version) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getChanges',lsId,version},res);});
+function getChanges(lsId, version) {
+    return new Promise((res) => { chrome.runtime.sendMessage(exId, { meta: 'getChanges', lsId, version }, res); });
 }
 function fetchTitle(lsId) {
-    return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getTitle',lsId},res);});
+    return new Promise((res) => { chrome.runtime.sendMessage(exId, { meta: 'getTitle', lsId }, res); });
 }
 
 function setTopbarButtonVisibility() {
-    try{
-        if(!lsId || typeof lsCursors == 'undefined' || Object.entries(Object(lsCursors)).length==0) {document.getElementById('lsUsersPanel').style.visibility = 'hidden';}
-        else {document.getElementById('lsUsersPanel').style.visibility = 'visible';}
-    } catch(e) {console.error(e);}
-    try{
-        let chatElem = document.getElementById('lsChatButton');
-        if(!lsId) {chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none';}
-        else {chatElem.style.visibility = 'visible'; chatElem.style.display = 'flex';}
-    } catch(e) {console.error(e);}
+    try {
+        if (!lsId || typeof lsCursors === 'undefined' || Object.entries(Object(lsCursors)).length === 0) { document.getElementById('lsUsersPanel').style.visibility = 'hidden'; } else { document.getElementById('lsUsersPanel').style.visibility = 'visible'; }
+    } catch (e) { console.error(e); }
+    try {
+        const chatElem = document.getElementById('lsChatButton');
+        if (!lsId) { chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none'; } else { chatElem.style.visibility = 'visible'; chatElem.style.display = 'flex'; }
+    } catch (e) { console.error(e); }
 }
 
 let getAndPlayNewChanges;
 
-async function activateLivescratch() {
+async function activateCoBlocks() {
 
-    addChat(); 
+    addChat();
     mountSharedBackpack().catch(error => console.error('Could not mount the CoBlocks backpack:', error));
 
-    playChanges = async (changes)=>{
-        console.log('syncing new changes:',changes);
-        if(changes.forceReload) {forceReload();}
+    playChanges = async (changes) => {
+        if (changes.forceReload) { forceReload(); }
 
         pauseEventHandling = true;
         for (let i = 0; i < changes.length; i++) {
-            await livescratchListener(changes[i]);
+            await collaborationListener(changes[i]);
         }
-        if(changes.currentVersion){lsVersion = changes.currentVersion;}
+        if (changes.currentVersion) { lsVersion = changes.currentVersion; }
         pauseEventHandling = false;
 
         vm.emitWorkspaceUpdate();
         vm.emitTargetsUpdate();
     };
 
-    // set scope exposed functions    
-    getAndPlayNewChanges = async ()=>{
+    // set scope exposed functions
+    getAndPlayNewChanges = async () => {
 
-        console.log('syncing since version: ' +  lsVersion);
-        fetchTitle(lsId).then(title=>setTitle(title)); // set title
+        fetchTitle(lsId).then(title => setTitle(title)); // set title
 
         // sync all other project changes
-        changes = await getChanges(lsId,lsVersion);
-        if(typeof BL_UTILS != 'undefined' && BL_UTILS.isDragging()) {
-            console.log('queing it for later');
-            playAfterDragStop.push({meta:'resyncCached',changes});
+        changes = await getChanges(lsId, lsVersion);
+        if (typeof BL_UTILS !== 'undefined' && BL_UTILS.isDragging()) {
+            playAfterDragStop.push({ meta: 'resyncCached', changes });
         } else {
             await playChanges(changes);
-        }    
+        }
     };
 
     function forceReload() {
-        window.onbeforeunload=null;
+        window.onbeforeunload = null;
         location.reload();
     }
 
@@ -372,69 +359,63 @@ async function activateLivescratch() {
     }
     connectFirstTime();
 
-    setInterval(reconnectIfNeeded,1000);
+    setInterval(reconnectIfNeeded, 1000);
 
     /// other things
 
-    livescratchListener = async (msg) => {
-        if(livescratchDeleted) {return;}
-        if(typeof BL_UTILS != 'undefined' && BL_UTILS.isDragging()) {
+    collaborationListener = async (msg) => {
+        if (coblocksDisabled) { return; }
+        if (typeof BL_UTILS !== 'undefined' && BL_UTILS.isDragging()) {
             // dong add to list if its a move event on the current moving block
-            if(msg.meta == 'vm.blockListen' && msg.type == 'move' && msg.event.blockId == BL_UTILS.getDraggingId()) {return;}
-            else { playAfterDragStop.push(msg); }
+            if (msg.meta === 'vm.blockListen' && msg.type === 'move' && msg.event.blockId === BL_UTILS.getDraggingId()) { return; } else { playAfterDragStop.push(msg); }
             return;
         }
-    
-        // console.log('recieved message',msg)
-        if(!!msg.version){lsVersion = msg.version-1;} // TODO: possibly disable this
-        try{
-            if(msg.meta == 'resyncCached') {
+
+        if (!!msg.version) { lsVersion = msg.version - 1; } // TODO: possibly disable this
+        try {
+            if (msg.meta === 'resyncCached') {
             // remember to await shit
                 await playChanges(msg.changes);
-            } else if (msg.meta=='sprite.proxy') {
+            } else if (msg.meta === 'sprite.proxy') {
                 lsVersion++;
                 await proxyActions[msg.data.name](...(['linguini'].concat(msg.data).concat(msg.data.args)));
-            } else if (msg.meta =='vm.blockListen') {
+            } else if (msg.meta === 'vm.blockListen') {
                 lsVersion++;
                 onBlockRecieve(msg);
-            } else if (msg.meta == 'messageList') {
+            } else if (msg.meta === 'messageList') {
                 for (let i = 0; i < msg.messages.length; i++) {
-                    await livescratchListener(msg.messages[i]);
+                    await collaborationListener(msg.messages[i]);
                 }
-            } else if (msg.meta == 'vm.shareBlocks') {
+            } else if (msg.meta === 'vm.shareBlocks') {
                 lsVersion++;
-                doShareBlocksMessage(msg);        
-            } else if (msg.meta == 'vm.replaceBlocks') {
-                if(!nameToTarget(msg.target)?.blocks) {
-                // console.log('saving for later')
-                    addNewTargetEvent(msg.target,msg);
-                }
-                else {
-                // console.log('doing')
+                doShareBlocksMessage(msg);
+            } else if (msg.meta === 'vm.replaceBlocks') {
+                if (!nameToTarget(msg.target)?.blocks) {
+                    addNewTargetEvent(msg.target, msg);
+                } else {
                     lsVersion++;
                     replaceBlockly(msg);
                 }
-            } else if(msg.meta == 'vm.updateBitmap') { // TODO: Do this better-- pass in changes from bg script
+            } else if (msg.meta === 'vm.updateBitmap') { // TODO: Do this better-- pass in changes from bg script
                 lsVersion++;
                 await updateBitmap(msg);
-            } else if(msg.meta == 'vm.updateSvg') { // TODO: Do this better-- pass in changes from bg script
+            } else if (msg.meta === 'vm.updateSvg') { // TODO: Do this better-- pass in changes from bg script
                 lsVersion++;
                 await updateSvg(msg);
-            } else if(msg.meta=='yourVersion') {
-                console.log('version ponged: ' + msg.version);
+            } else if (msg.meta === 'yourVersion') {
                 lsVersion = msg.version;
-            } else if(msg.meta == 'setTitle') {
+            } else if (msg.meta === 'setTitle') {
                 setTitle(msg.title);
-            } else if(msg.meta == 'resync') { // TODO: Do this better-- pass in changes from bg script
-                if(readyToRecieveChanges){getAndPlayNewChanges();}
-            } else if(msg.meta == 'version++') {
+            } else if (msg.meta === 'resync') { // TODO: Do this better-- pass in changes from bg script
+                if (readyToRecieveChanges) { getAndPlayNewChanges(); }
+            } else if (msg.meta === 'version++') {
                 lsVersion++;
-            } else if(msg.meta == 'chat') {
-                addMessage(msg.msg,true);
-            } else if(msg.meta == 'backpack.updated') {
+            } else if (msg.meta === 'chat') {
+                addMessage(msg.msg, true);
+            } else if (msg.meta === 'backpack.updated') {
                 if (document.querySelector('#lsNativeBackpack')) refreshSharedBackpack();
             }
-        } catch (e) {console.error(e);}
+        } catch (e) { console.error(e); }
     };
 
 
@@ -457,9 +438,9 @@ async function activateLivescratch() {
 
     // Trap ScratchBlocks - rewrote for react 18 by waakul
 
-    listenForObj('[class^="gui_blocks-wrapper"]',(reactElem)=>{
-        let reactKey = Object.keys(reactElem).find(k => k.startsWith('__reactFiber'));
-        let reactInst = reactElem[reactKey];
+    listenForObj('[class^="gui_blocks-wrapper"]', (reactElem) => {
+        const reactKey = Object.keys(reactElem).find(k => k.startsWith('__reactFiber'));
+        const reactInst = reactElem[reactKey];
         let reactLoopInst = reactInst;
         while (reactLoopInst && (!reactLoopInst.stateNode || !reactLoopInst.stateNode.ScratchBlocks)) {
             reactLoopInst = reactLoopInst.child;
@@ -476,10 +457,10 @@ async function activateLivescratch() {
 
     // Trap Paint
     function getPaper() {
-        let paperContainer = document.querySelector('[class^=\'paint-editor_canvas-container\']');
-        if(!paperContainer) return null;
-        let reactKey = Object.keys(paperContainer).find(k => k.startsWith('__reactFiber'));
-        let reactInst = paperContainer[reactKey];
+        const paperContainer = document.querySelector('[class^=\'paint-editor_canvas-container\']');
+        if (!paperContainer) return null;
+        const reactKey = Object.keys(paperContainer).find(k => k.startsWith('__reactFiber'));
+        const reactInst = paperContainer[reactKey];
         let reactLoopInst = reactInst;
         while (reactLoopInst && (!reactLoopInst.stateNode || !reactLoopInst.stateNode.canvas)) {
             reactLoopInst = reactLoopInst.child;
@@ -510,12 +491,12 @@ async function activateLivescratch() {
     }
 
     // STAGE IDENTIFIER. DO NOT SET SPRITE NAME TO THIS UNLESS YOU WANT TO PURPOSEFULLY BREAK LINKAGE!!!!
-    let stageName = 'jHHVSbKjDsRhSWhIlYtd...___+_0)0+-amongus';
+    const stageName = 'jHHVSbKjDsRhSWhIlYtd...___+_0)0+-amongus';
     function targetToName(target) {
         return target?.isStage ? stageName : target?.sprite.name;
     }
     function nameToTarget(name) {
-        return name == stageName ? vm.runtime.getTargetForStage() : vm.runtime.getSpriteTargetByName(name);
+        return name === stageName ? vm.runtime.getTargetForStage() : vm.runtime.getSpriteTargetByName(name);
     }
 
     // Credit to GarboMuffin and apple502j https://github.com/ScratchAddons/ScratchAddons/blob/399e2e51ca43e9299c8d07ff315b91966c7c1a5e/addons/onion-skinning/userscript.js#L428
@@ -530,13 +511,13 @@ async function activateLivescratch() {
     function refreshFlyout() {
         vm.emitWorkspaceUpdate();
         // update flyout for new variables and blocks
-        if(!BL_UTILS.isWorkspaceAccessable()){return;}
+        if (!BL_UTILS.isWorkspaceAccessable()) { return; }
         BL_UTILS.getWorkspace().getToolbox().refreshSelection();
-        setTimeout(()=>{
-            if(BL_UTILS.isWorkspaceAccessable()) {
+        setTimeout(() => {
+            if (BL_UTILS.isWorkspaceAccessable()) {
                 BL_UTILS.getWorkspace().toolboxRefreshEnabled_ = true;
             }
-        },130);
+        }, 130);
     }
     BL_UTILS = {
         isWorkspaceAccessable,
@@ -556,32 +537,30 @@ async function activateLivescratch() {
     let lastTitle = store.getState().preview.projectInfo.title;
     let settingTitle = null;
     let titleYetUnset = true;
-    setTimeout(()=>{titleYetUnset=false;},1000 * 2);
+    setTimeout(() => { titleYetUnset = false; }, 1000 * 2);
 
     store.subscribe(function() {
     // HANDLE PROJECT SAVE
-        let state = store.getState().scratchGui.projectState.loadingState;
-        if(lastProjectState != state) { // If state changed
+        const state = store.getState().scratchGui.projectState.loadingState;
+        if (lastProjectState !== state) { // If state changed
             lastProjectState = store.getState().scratchGui.projectState.loadingState;
-            console.log('state '+state);
-            if(state.endsWith('UPDATING')) {
-                console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
-                chrome.runtime.sendMessage(exId,{meta:'projectSavedJSON',lsId,scratchId,json:vm.toJSON(),version:lsVersion});
+            if (state.endsWith('UPDATING')) {
+                chrome.runtime.sendMessage(exId, { meta: 'projectSavedJSON', lsId, scratchId, json: vm.toJSON(), version: lsVersion });
             // chrome.runtime.sendMessage(exId,{meta:'projectSaved',lsId,scratchId,version:lsVersion})
             }
-            try{
-                if(state == 'SHOWING_WITH_ID') {
-                    finishedSavingCB.forEach((func)=>{func();});
-                }}catch(e){console.error(e);}
+            try {
+                if (state === 'SHOWING_WITH_ID') {
+                    finishedSavingCB.forEach((func) => { func(); });
+                }
+            } catch (e) { console.error(e); }
         }
 
         // HANDLE TITLE CHANGE
-        let title = store.getState().preview.projectInfo.title;
-        if(title != lastTitle && !titleYetUnset) {
-            console.log(`title changed from ${lastTitle} to ${title}`);
+        const title = store.getState().preview.projectInfo.title;
+        if (title !== lastTitle && !titleYetUnset) {
             lastTitle = title;
-            if(title != settingTitle) {
-                liveMessage({meta:'setTitle',lsId,title});
+            if (title !== settingTitle) {
+                liveMessage({ meta: 'setTitle', lsId, title });
             }
         }
     });
@@ -589,9 +568,9 @@ async function activateLivescratch() {
 
     function setTitle(title) {
         settingTitle = title;
-        let elem = document.querySelector('#frc-title-1088'); //Todo: query id
-        if(elem) {
-            Object.entries(elem).find(en=>en[0].startsWith('__reactEventHandlers$'))[1].onBlur({currentTarget:{value:title}});
+        const elem = document.querySelector('#frc-title-1088'); //Todo: query id
+        if (elem) {
+            Object.entries(elem).find(en => en[0].startsWith('__reactEventHandlers$'))[1].onBlur({ currentTarget: { value: title } });
         } else {
             store.dispatch({
                 type: 'projectTitle/SET_PROJECT_TITLE',
@@ -604,12 +583,11 @@ async function activateLivescratch() {
 
     function replaceBlockly(msg) {
     // replace a target's block data (used for syncing id's on sprite duplicate)
-        let target = nameToTarget(msg.target);
-        let blocks = target.blocks;
-        Object.keys(blocks._blocks).forEach(v=>{blocks.deleteBlock(v);});
-        // console.log(msg.blocks)
-        Object.values(msg.blocks).forEach(block=>{blocks.createBlock(block);});
-        if(targetToName(vm.editingTarget) == targetToName(target)) {vm.emitWorkspaceUpdate();}
+        const target = nameToTarget(msg.target);
+        const blocks = target.blocks;
+        Object.keys(blocks._blocks).forEach(v => { blocks.deleteBlock(v); });
+        Object.values(msg.blocks).forEach(block => { blocks.createBlock(block); });
+        if (targetToName(vm.editingTarget) === targetToName(target)) { vm.emitWorkspaceUpdate(); }
     }
 
 
@@ -622,70 +600,66 @@ async function activateLivescratch() {
     // mutator takes data object {name, args, extrargs} and returns args list
 
     let prevTarg = null;
-    function editingProxy(action,name,before,after,extrargs,mutator) {
-        return proxy(action,name,
-            (a)=>({target:targetToName(vm.editingTarget),...(extrargs ? extrargs(a) : null)}),mutator,
-            (data)=>{
-                if(!!before){before(data);}
+    function editingProxy(action, name, before, after, extrargs, mutator) {
+        return proxy(action, name,
+            (a) => ({ target: targetToName(vm.editingTarget), ...(extrargs ? extrargs(a) : null) }), mutator,
+            (data) => {
+                if (!!before) { before(data); }
                 prevTarg = vm.editingTarget;
                 vm.editingTarget = nameToTarget(data.extrargs.target);
                 vm.runtime._editingTarget = vm.editingTarget;
             },
-            (_a,_b,data)=>{
-                if(!prevTarg) {'PREVTARG IS UNDEFINED';}
-                if(!!prevTarg && !!vm.runtime.getTargetById(prevTarg.id)) {
+            (_a, _b, data) => {
+                if (!prevTarg) { 'PREVTARG IS UNDEFINED'; }
+                if (!!prevTarg && !!vm.runtime.getTargetById(prevTarg.id)) {
                     vm.editingTarget = prevTarg;
                     vm.runtime._editingTarget = prevTarg;
                 }
                 vm.emitTargetsUpdate();
-                if(!!after){after(_a,_b,data);}
+                if (!!after) { after(_a, _b, data); }
             });
     }
 
-    function proxy(action,name,extrargs,mutator,before,then,dontSend,dontDo,senderThen) {
-        return anyproxy(vm,action,name,extrargs,mutator,before,then,dontSend,dontDo,senderThen);
+    function proxy(action, name, extrargs, mutator, before, then, dontSend, dontDo, senderThen) {
+        return anyproxy(vm, action, name, extrargs, mutator, before, then, dontSend, dontDo, senderThen);
     }
-    function anyproxy(bindTo,action,name,extrargs,mutator,before,then,dontSend,dontDo,senderThen) {
-        let proxiedFunction =function(...args) {
-            if(args[0]=='linguini') {
+    function anyproxy(bindTo, action, name, extrargs, mutator, before, then, dontSend, dontDo, senderThen) {
+        const proxiedFunction = function(...args) {
+            if (args[0] === 'linguini') {
                 // if linguini, ...args are ['linguini', data, data.args]
-                args.splice(0,1);
-                let data = args.splice(0,1)[0];
-                // console.log('data:')
-                // console.log(data)
-                if(mutator){args = mutator(data);}
+                args.splice(0, 1);
+                const data = args.splice(0, 1)[0];
+                if (mutator) { args = mutator(data); }
                 // else {args = data.args}
 
-                let prevTarget = vm.editingTarget;
-                if(!!before) {before(data);}
-                if(dontDo?.(data)) {return;}
+                const prevTarget = vm.editingTarget;
+                if (!!before) { before(data); }
+                if (dontDo?.(data)) { return; }
                 proxiedArgs = args;
                 let retVal;
-                try{retVal = action.bind(bindTo)(...args);}catch(e){console.error('error on proxy run',e);}
-                if(then) {
-                    if(!!retVal?.then) {
+                try { retVal = action.bind(bindTo)(...args); } catch (e) { console.error('error on proxy run', e); }
+                if (then) {
+                    if (!!retVal?.then) {
                     // if returns a promise
-                        retVal.then((res)=>{then(prevTarget,vm.editingTarget,data,res);});
+                        retVal.then((res) => { then(prevTarget, vm.editingTarget, data, res); });
                     } else {
                     // if is normal resolved function
-                        then(prevTarget,vm.editingTarget,data,retVal);
+                        then(prevTarget, vm.editingTarget, data, retVal);
                     }
                 }
                 return retVal;
             } else {
-                if(pauseEventHandling) {
+                if (pauseEventHandling) {
                     return action.bind(bindTo)(...args);
                 } else {
-                    // console.log('intrecepted:')
-                    // console.log(...args)
                     let extrargsObj = null;
-                    if(!!extrargs) {extrargsObj=extrargs(args);}
+                    if (!!extrargs) { extrargsObj = extrargs(args); }
                     proxiedArgs = args;
 
-                    let retVal = action.bind(bindTo)(...args);
-                    if(!dontSend?.(...args)) { liveMessage({meta:'sprite.proxy',data:{name,args,extrargs:extrargsObj}}); }
-                    if(senderThen) {
-                        if(!!retVal?.then) {
+                    const retVal = action.bind(bindTo)(...args);
+                    if (!dontSend?.(...args)) { liveMessage({ meta: 'sprite.proxy', data: { name, args, extrargs: extrargsObj } }); }
+                    if (senderThen) {
+                        if (!!retVal?.then) {
                             // if returns a promise
                             retVal.then(senderThen);
                         } else {
@@ -701,67 +675,63 @@ async function activateLivescratch() {
         return proxiedFunction;
     }
 
-    function asyncEditingProxy(action,name,before,after,extrargs,mutator) {
-        return asyncAnyproxy(vm,action,name,
-            (a)=>({target:targetToName(vm.editingTarget),...(extrargs ? extrargs(a) : null)}),mutator,
-            (data)=>{
-                if(!!before){before(data);}
+    function asyncEditingProxy(action, name, before, after, extrargs, mutator) {
+        return asyncAnyproxy(vm, action, name,
+            (a) => ({ target: targetToName(vm.editingTarget), ...(extrargs ? extrargs(a) : null) }), mutator,
+            (data) => {
+                if (!!before) { before(data); }
                 prevTarg = vm.editingTarget;
                 vm.editingTarget = nameToTarget(data.extrargs.target);
                 vm.runtime._editingTarget = vm.editingTarget;
             },
-            (_a,_b,data)=>{
-                if(!prevTarg) {'PREVTARG IS UNDEFINED';}
-                if(!!prevTarg && !!vm.runtime.getTargetById(prevTarg.id)) {
+            (_a, _b, data) => {
+                if (!prevTarg) { 'PREVTARG IS UNDEFINED'; }
+                if (!!prevTarg && !!vm.runtime.getTargetById(prevTarg.id)) {
                     vm.editingTarget = prevTarg;
                     vm.runtime._editingTarget = prevTarg;
                 }
                 vm.emitTargetsUpdate();
-                if(!!after){after(_a,_b,data);}
+                if (!!after) { after(_a, _b, data); }
             });
     }
 
-    function asyncAnyproxy(bindTo,action,name,extrargs,mutator,before,then,dontSend,dontDo,senderThen) {
-        let proxiedFunction =async function(...args) {
-            if(args[0]=='linguini') {
+    function asyncAnyproxy(bindTo, action, name, extrargs, mutator, before, then, dontSend, dontDo, senderThen) {
+        const proxiedFunction = async function(...args) {
+            if (args[0] === 'linguini') {
                 // if linguini, ...args are ['linguini', data, data.args]
-                args.splice(0,1);
-                let data = args.splice(0,1)[0];
-                // console.log('data:')
-                // console.log(data)
-                if(mutator){args = await mutator(data);}
+                args.splice(0, 1);
+                const data = args.splice(0, 1)[0];
+                if (mutator) { args = await mutator(data); }
                 // else {args = data.args}
 
-                let prevTarget = vm.editingTarget;
-                if(!!before) {before(data);}
-                if(dontDo?.(data)) {return;}
+                const prevTarget = vm.editingTarget;
+                if (!!before) { before(data); }
+                if (dontDo?.(data)) { return; }
                 proxiedArgs = args;
                 let retVal;
-                try{retVal = action.bind(bindTo)(...args);}catch(e){console.error('error on proxy run',e);}
-                if(then) {
-                    if(!!retVal?.then) {
+                try { retVal = action.bind(bindTo)(...args); } catch (e) { console.error('error on proxy run', e); }
+                if (then) {
+                    if (!!retVal?.then) {
                     // if returns a promise
-                        retVal.then((res)=>{then(prevTarget,vm.editingTarget,data,res);});
+                        retVal.then((res) => { then(prevTarget, vm.editingTarget, data, res); });
                     } else {
                     // if is normal resolved function
-                        then(prevTarget,vm.editingTarget,data,retVal);
+                        then(prevTarget, vm.editingTarget, data, retVal);
                     }
                 }
                 return retVal;
             } else {
-                if(pauseEventHandling) {
+                if (pauseEventHandling) {
                     return action.bind(bindTo)(...args);
                 } else {
-                    // console.log('intrecepted:')
-                    // console.log(...args)
                     let extrargsObj = null;
-                    if(!!extrargs) {extrargsObj=extrargs(args);}
+                    if (!!extrargs) { extrargsObj = extrargs(args); }
                     proxiedArgs = args;
 
-                    let retVal = action.bind(bindTo)(...args);
-                    if(!dontSend?.(...args)) { liveMessage({meta:'sprite.proxy',data:{name,args,extrargs:extrargsObj}}); }
-                    if(senderThen) {
-                        if(!!retVal?.then) {
+                    const retVal = action.bind(bindTo)(...args);
+                    if (!dontSend?.(...args)) { liveMessage({ meta: 'sprite.proxy', data: { name, args, extrargs: extrargsObj } }); }
+                    if (senderThen) {
+                        if (!!retVal?.then) {
                             // if returns a promise
                             retVal.then(senderThen);
                         } else {
@@ -780,23 +750,23 @@ async function activateLivescratch() {
 
     // todo catch shadow create
     function isBadToSend(event, target) {
-        switch(event.type) {
+        switch (event.type) {
         // filter out shadow events that shouldnt be proxied
-        case 'create': if(event.xml.nodeName == 'SHADOW') {return true;}
-        case 'delete': if(event.oldXml?.nodeName == 'SHADOW') {return true;}
-        case 'move' : {
-            let block = target.blocks.getBlock(event.blockId);
-            if(block?.shadow) {return true;}
+            case 'create': if (event.xml.nodeName === 'SHADOW') { return true; }
+            case 'delete': if (event.oldXml?.nodeName === 'SHADOW') { return true; }
+            case 'move' : {
+                const block = target.blocks.getBlock(event.blockId);
+                if (block?.shadow) { return true; }
 
             // edge case: c1 move unlinked var block into parent block. c2 livescratch mistakenly moves a linked block into that place. c2 moves linked block out of the parent block and does not move out of c1
             // dont send if moves a varible to same position
             // if(!!block && (block.fields.VARIABLE || block.fields.LIST)) {
             //     if(!!event.oldCoordinate && !!event.newCoordinate && (
-            //         Math.round(event.oldCoordinate.x) == Math.round(event.newCoordinate.x) &&
-            //         Math.round(event.oldCoordinate.y) == Math.round(event.newCoordinate.y)
+            //         Math.round(event.oldCoordinate.x) === Math.round(event.newCoordinate.x) &&
+            //         Math.round(event.oldCoordinate.y) === Math.round(event.newCoordinate.y)
             //     )) {return true}
             // }
-        }
+            }
         }
         return false;
     }
@@ -808,133 +778,129 @@ async function activateLivescratch() {
     function isBadToRun(event, target) {
         switch (event.type) {
         // dont run if block already exists
-        case 'create': return !!target.blocks.getBlock(event.blockId);
-        case 'delete': return !target.blocks.getBlock(event.blockId);
-        // dont run if comment already exists
-        case 'comment_create': return event.commentId in target.comments;
-        case 'move': {
+            case 'create': return !!target.blocks.getBlock(event.blockId);
+            case 'delete': return !target.blocks.getBlock(event.blockId);
+                // dont run if comment already exists
+            case 'comment_create': return event.commentId in target.comments;
+            case 'move': {
             // dont run if block doesnt exist
-            if(!target.blocks.getBlock(event.blockId)) return true;
-            // dont run if block is already close enough to position (rounded to 1's place)
-            // ...and make sure that the event specifies x and y before checking!
-            if(!!event.newCoordinate?.x && !!event.newCoordinate?.y) {
-                let localBlock = target.blocks.getBlock(event.blockId);
-                if(Math.round(localBlock.x)== Math.round(event.newCoordinate.x) &&
-                Math.round(localBlock.y) == Math.round(event.newCoordinate.y))
-                { return true; }
+                if (!target.blocks.getBlock(event.blockId)) return true;
+                // dont run if block is already close enough to position (rounded to 1's place)
+                // ...and make sure that the event specifies x and y before checking!
+                if (!!event.newCoordinate?.x && !!event.newCoordinate?.y) {
+                    const localBlock = target.blocks.getBlock(event.blockId);
+                    if (Math.round(localBlock.x) === Math.round(event.newCoordinate.x) &&
+                Math.round(localBlock.y) === Math.round(event.newCoordinate.y)) { return true; }
+                }
+                // dont run if newParentId is the same (assuming exists)
+                if (!!event.newParentId) {
+                    const localBlock = target.blocks.getBlock(event.blockId);
+                    if (localBlock.parent === event.newParentId) { return true; }
+                }
             }
-            // dont run if newParentId is the same (assuming exists)
-            if(!!event.newParentId) {
-                let localBlock = target.blocks.getBlock(event.blockId);
-                if(localBlock.parent == event.newParentId){return true;}
-            }
-        }
         }
         return false;
     }
     // Interface with ScratchBlocks object
-    function isBadToRunBlockly(event,workspace) {
+    function isBadToRunBlockly(event, workspace) {
         switch (event.type) {
         // dont run if block already exists
-        case 'create': return !!workspace.getBlockById(event.blockId);
+            case 'create': return !!workspace.getBlockById(event.blockId);
         }
-    
+
     }
 
     function getStringEventRep(e) {
         let rep = e.type + e.blockId + e.commentId + e.varId;
-        switch(e.type) {
-        case 'move':
-            rep += parseInt(e.newCoordinate?.x) + ''
+        switch (e.type) {
+            case 'move':
+                rep += parseInt(e.newCoordinate?.x) + ''
             + parseInt(e.newCoordinate?.y) + ''
             + e.newParentId + '';
-            break;
-        case 'change':
-            rep += e.name + e.newValue + e.element;
-            break;
-        case 'var_create':
-            rep += e.varName + e.isCloud + e.isLocal;
-            break;
-        case 'var_delete':
-            rep += e.varName + e.isCloud + e.isLocal;
-            break;
-        case 'var_rename':
-            rep += e.newName;
-            break;
-        case 'comment_change':
-            rep += JSON.stringify(e.newContents_,(k,v)=>(v?.toFixed ? Number(v.toFixed(0)) : v));
-            break;
-        case 'comment_move':
-            rep += Math.round(e.newCoordinate_?.x)
+                break;
+            case 'change':
+                rep += e.name + e.newValue + e.element;
+                break;
+            case 'var_create':
+                rep += e.varName + e.isCloud + e.isLocal;
+                break;
+            case 'var_delete':
+                rep += e.varName + e.isCloud + e.isLocal;
+                break;
+            case 'var_rename':
+                rep += e.newName;
+                break;
+            case 'comment_change':
+                rep += JSON.stringify(e.newContents_, (k, v) => (v?.toFixed ? Number(v.toFixed(0)) : v));
+                break;
+            case 'comment_move':
+                rep += Math.round(e.newCoordinate_?.x)
             + Math.round(e.newCoordinate_?.y);
-            break;
+                break;
         }
-        return rep.replaceAll('undefined','null');
+        return rep.replaceAll('undefined', 'null');
     }
 
     oldBlockListener = vm.blockListener;
-    livescratchEvents = {};
+    remoteEvents = {};
     createEventMap = {};
     toBeMoved = {};
     // listen to local blockly events
     function blockListener(e) {
-    // console.log('is event handling & workspace updating paused?: ' + pauseEventHandling)
-        if(pauseEventHandling) {return;}
-        console.log('just intrecepted',e);
-        if(e.type == 'ui'){uiii = e;}
-        if(e.type == 'create'){createe = e;}
-        if(e.type == 'delete'){deletee = e;}
-        if(e.type == 'change'){changee = e;}
-        if(e.type == 'move'){movee = e;}
-        if(e.type == 'comment_change'){comee = e;}
+        if (pauseEventHandling) { return; }
+        if (e.type === 'ui') { uiii = e; }
+        if (e.type === 'create') { createe = e; }
+        if (e.type === 'delete') { deletee = e; }
+        if (e.type === 'change') { changee = e; }
+        if (e.type === 'move') { movee = e; }
+        if (e.type === 'comment_change') { comee = e; }
         // filter ui events and livescratch
-        let stringRep = getStringEventRep(e);
-        if(stringRep in livescratchEvents) {delete livescratchEvents[stringRep];}
-        else if(
-            !e.isLivescratch &&
+        const stringRep = getStringEventRep(e);
+        if (stringRep in remoteEvents) { delete remoteEvents[stringRep]; } else if (
+            !e.isCoBlocks &&
         !e.isUiEvent &&
-        ['endDrag','ui','dragOutside'].indexOf(e.type) == -1 &&
-        !isBadToSend(e,vm.editingTarget) &&
-        e.element != 'stackclick'
+        ['endDrag', 'ui', 'dragOutside'].indexOf(e.type) === -1 &&
+        !isBadToSend(e, vm.editingTarget) &&
+        e.element !== 'stackclick'
         ) {
-            let extrargs = {};
-        
+            const extrargs = {};
+
             // send variable locator info
-            if(e.type == 'move') {
-                let block = vm.editingTarget.blocks.getBlock(e.blockId);
-                if(!!block && (block.fields.VARIABLE || block.fields.LIST)) {
+            if (e.type === 'move') {
+                const block = vm.editingTarget.blocks.getBlock(e.blockId);
+                if (!!block && (block.fields.VARIABLE || block.fields.LIST)) {
                     extrargs.blockVarId = block.fields.VARIABLE ? block.fields.VARIABLE.id : block.fields.LIST.id;
                 }
-            } else if(e.type == 'change' && (e.name == 'VARIABLE' || e.name == 'LIST')){
-                let block = vm.editingTarget.blocks.getBlock(e.blockId);
-                if(!!block && (
-                    block.opcode == 'data_variable' || block.opcode == 'data_listcontents'
+            } else if (e.type === 'change' && (e.name === 'VARIABLE' || e.name === 'LIST')) {
+                const block = vm.editingTarget.blocks.getBlock(e.blockId);
+                if (!!block && (
+                    block.opcode === 'data_variable' || block.opcode === 'data_listcontents'
                 )) {
                     extrargs.blockVarId = e.oldValue;
                     extrargs.blockVarParent = block.parent;
-                    extrargs.blockVarPos = {x:block.x,y:block.y};
-                    extrargs.blockVarInput = Object.values(new Object(vm.editingTarget.blocks.getBlock(block.parent)?.inputs))?.find(input=>(input.block==e.blockId))?.name;
+                    extrargs.blockVarPos = { x: block.x, y: block.y };
+                    extrargs.blockVarInput = Object.values(new Object(vm.editingTarget.blocks.getBlock(block.parent)?.inputs))?.find(input => (input.block === e.blockId))?.name;
                 }
-            } else if(e.type == 'delete' && (
-                e.oldXml?.firstElementChild?.getAttribute('name') == 'VARIABLE' ||
-            e.oldXml?.firstElementChild?.getAttribute('name') == 'LIST'
+            } else if (e.type === 'delete' && (
+                e.oldXml?.firstElementChild?.getAttribute('name') === 'VARIABLE' ||
+            e.oldXml?.firstElementChild?.getAttribute('name') === 'LIST'
             )) {
-                let block = !!vm.editingTarget.blocks._blocks[e.blockId] ? vm.editingTarget.blocks._blocks[e.blockId] : lastDeletedBlock;
+                const block = !!vm.editingTarget.blocks._blocks[e.blockId] ? vm.editingTarget.blocks._blocks[e.blockId] : lastDeletedBlock;
                 extrargs.blockVarId = block.fields.VARIABLE ? block.fields.VARIABLE.id : block.fields.LIST.id;
                 extrargs.blockVarParent = block.parent;
-                extrargs.blockVarPos = {x:block.x,y:block.y};
-                extrargs.blockVarInput = Object.values(new Object(vm.editingTarget.blocks.getBlock(block.parent)?.inputs))?.find(input=>(input.block==e.blockId))?.name;
+                extrargs.blockVarPos = { x: block.x, y: block.y };
+                extrargs.blockVarInput = Object.values(new Object(vm.editingTarget.blocks.getBlock(block.parent)?.inputs))?.find(input => (input.block === e.blockId))?.name;
             }
 
             // send field locator info
-            if(e.element == 'field') {
-                if(vm.editingTarget.blocks.getBlock(e.blockId).shadow) {
-                    let fieldInputId = e.blockId;
-                    let fieldInput = vm.editingTarget.blocks.getBlock(fieldInputId);
-                    let parentId = fieldInput.parent;
-                    if(!!parentId) {
-                        let parentBlock = vm.editingTarget.blocks.getBlock(parentId);
-                        let inputTag = Object.values(new Object(parentBlock.inputs)).find(input=>input.shadow==fieldInputId).name;
+            if (e.element === 'field') {
+                if (vm.editingTarget.blocks.getBlock(e.blockId).shadow) {
+                    const fieldInputId = e.blockId;
+                    const fieldInput = vm.editingTarget.blocks.getBlock(fieldInputId);
+                    const parentId = fieldInput.parent;
+                    if (!!parentId) {
+                        const parentBlock = vm.editingTarget.blocks.getBlock(parentId);
+                        const inputTag = Object.values(new Object(parentBlock.inputs)).find(input => input.shadow === fieldInputId).name;
 
                         extrargs.parentId = parentId;
                         extrargs.fieldTag = inputTag;
@@ -943,60 +909,56 @@ async function activateLivescratch() {
             }
 
             // send broadcast name (in case of auto broadcast delete on recieving client)
-            if(e.type == 'change' && e.name == 'BROADCAST_OPTION') {
+            if (e.type === 'change' && e.name === 'BROADCAST_OPTION') {
                 extrargs.broadcastName = vm.runtime.getTargetForStage().variables[e.newValue]?.name;
                 extrargs.broadcastId = vm.runtime.getTargetForStage().variables[e.newValue]?.id;
             }
 
             // send block xml-related things
-            if(!!e.xml) {
-                extrargs.xml = {outerHTML:e.xml.outerHTML};
-                extrargs.isCBCreateOrDelete = e.xml?.getAttribute('type') == 'procedures_definition';
+            if (!!e.xml) {
+                extrargs.xml = { outerHTML: e.xml.outerHTML };
+                extrargs.isCBCreateOrDelete = e.xml?.getAttribute('type') === 'procedures_definition';
             }
-            if(!!e.oldXml) {
-                extrargs.isCBCreateOrDelete = extrargs.isCBCreateOrDelete || e.oldXml?.getAttribute('type') == 'procedures_definition';
+            if (!!e.oldXml) {
+                extrargs.isCBCreateOrDelete = extrargs.isCBCreateOrDelete || e.oldXml?.getAttribute('type') === 'procedures_definition';
             }
 
-            // console.log("sending",e,extrargs,'target',targetToName(vm.editingTarget))
 
-            let message = {meta:'vm.blockListen',type:e.type,extrargs,event:e,json:e.toJson(),target:targetToName(vm.editingTarget)};
-        
+            let message = { meta: 'vm.blockListen', type: e.type, extrargs, event: e, json: e.toJson(), target: targetToName(vm.editingTarget) };
+
             // intercept and save create events to send later
-            if(e.type == 'create') {
+            if (e.type === 'create') {
                 createEventMap[e.blockId] = message;
-                // } else if (e.type == 'comment_create') { //TODO: maybe add back
+                // } else if (e.type === 'comment_create') { //TODO: maybe add back
                 //     createEventMap[e.commentId] = message
                 // intercept auto generated move event
-            } else if ((e.type == 'move') && e.blockId in toBeMoved){
-                let moveEvents = toBeMoved[e.blockId];
-                // console.log("move events",moveEvents)
+            } else if ((e.type === 'move') && e.blockId in toBeMoved) {
+                const moveEvents = toBeMoved[e.blockId];
                 delete toBeMoved[e.blockId];
-                moveEvents.forEach(moveMessage=>onBlockRecieve(moveMessage));
-            }
-            else {
+                moveEvents.forEach(moveMessage => onBlockRecieve(moveMessage));
+            } else {
             // send held off create events
-                if(e.blockId in createEventMap) {
+                if (e.blockId in createEventMap) {
                 // erase from face of existance
-                    if(e.type == 'delete') {
+                    if (e.type === 'delete') {
                         message = null;
-                    } else { 
+                    } else {
                         liveMessage(createEventMap[e.blockId]);
                     // setTimeout(()=>{liveMessage(createEventMap[e.blockId])},5000 )
                     }
                     delete createEventMap[e.blockId];
                 }
-                if(e.commentId in createEventMap) {
-                    if(e.type == 'comment_delete') {
+                if (e.commentId in createEventMap) {
+                    if (e.type === 'comment_delete') {
                         message = null;
-                    } else { 
-                        liveMessage(createEventMap[e.commentId]); 
+                    } else {
+                        liveMessage(createEventMap[e.commentId]);
                     // setTimeout(()=>{liveMessage(createEventMap[e.commentId]) },5000)
                     }
                     delete createEventMap[e.commentId];
                 }
-                if(!!message){
+                if (!!message) {
                     liveMessage(message);
-                    console.log('sending',message,getStringEventRep(message.event)); // toremove
 
                 // setTimeout(()=>{liveMessage(message)},5000)
                 }
@@ -1010,18 +972,18 @@ async function activateLivescratch() {
     // Todo: catch stage not being sprite
     // Remove thing from undo list
 
-    function getDistance(p1,p2) {
-        return Math.sqrt(Math.pow(p2.x-p1.x,2) + Math.pow(p2.y-p1.y,2));
+    function getDistance(p1, p2) {
+        return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
     }
 
     function onBlockRecieve(d) {
 
         // for comment parsing cause they did the toJson wrong apparently
-        if(d.type == 'comment_change') {
+        if (d.type === 'comment_change') {
             d.json.newValue = d.json.newContents;
         }
 
-        let oldEditingTarget = vm.editingTarget;
+        const oldEditingTarget = vm.editingTarget;
         // set editing target
         vm.editingTarget = nameToTarget(d.target);
         vm.runtime._editingTarget = vm.editingTarget;
@@ -1029,14 +991,14 @@ async function activateLivescratch() {
         // pause workspace updating
         pauseWorkspaceUpdating();
 
-        try{
-            let vEvent = d.event;
+        try {
+            const vEvent = d.event;
             let bEvent = {};
-            if(isWorkspaceAccessable()) {
-                bEvent = ScratchBlocks.Events.fromJson(d.json,getWorkspace());
+            if (isWorkspaceAccessable()) {
+                bEvent = ScratchBlocks.Events.fromJson(d.json, getWorkspace());
             }
             //set blockly event tag
-            bEvent.isLivescratch = true;
+            bEvent.isCoBlocks = true;
 
             //........... Modify event ...........//
 
@@ -1044,42 +1006,41 @@ async function activateLivescratch() {
             vEvent.type = d.type;
 
             // find true variable block if needed
-            if(d.extrargs.blockVarId && !(d.event.blockId in toBeMoved) && !vm.editingTarget.blocks.getBlock(d.event.blockId)) {
-                if(d.event.oldParentId || d.extrargs.blockVarParent) {
-                    let oldParentId = d.extrargs.blockVarParent ? d.extrargs.blockVarParent : d.event.oldParentId;
-                    let realId = vm.editingTarget.blocks.getBlock(oldParentId).inputs[d.extrargs.blockVarInput ? d.extrargs.blockVarInput : d.event.oldInputName].block;
+            if (d.extrargs.blockVarId && !(d.event.blockId in toBeMoved) && !vm.editingTarget.blocks.getBlock(d.event.blockId)) {
+                if (d.event.oldParentId || d.extrargs.blockVarParent) {
+                    const oldParentId = d.extrargs.blockVarParent ? d.extrargs.blockVarParent : d.event.oldParentId;
+                    const realId = vm.editingTarget.blocks.getBlock(oldParentId).inputs[d.extrargs.blockVarInput ? d.extrargs.blockVarInput : d.event.oldInputName].block;
                     vEvent.blockId = realId;
                     bEvent.blockId = realId;
-                    if(d.type == 'delete') {
+                    if (d.type === 'delete') {
                         bEvent.ids = [realId];
                         vEvent.ids = [realId];
                     }
-                } else if(d.event.oldCoordinate || d.extrargs.blockVarPos) {
-                    let oldCoordinate = d.extrargs.blockVarPos ? d.extrargs.blockVarPos : d.event.oldCoordinate;
-                    let varBlocks = vm.editingTarget.blocks._scripts.filter((blockId)=>{
-                        let block = vm.editingTarget.blocks.getBlock(blockId);
+                } else if (d.event.oldCoordinate || d.extrargs.blockVarPos) {
+                    const oldCoordinate = d.extrargs.blockVarPos ? d.extrargs.blockVarPos : d.event.oldCoordinate;
+                    const varBlocks = vm.editingTarget.blocks._scripts.filter((blockId) => {
+                        const block = vm.editingTarget.blocks.getBlock(blockId);
                         return (
-                            block?.fields?.VARIABLE?.id == d.extrargs.blockVarId ||
-                    block?.fields?.LIST?.id == d.extrargs.blockVarId
+                            block?.fields?.VARIABLE?.id === d.extrargs.blockVarId ||
+                    block?.fields?.LIST?.id === d.extrargs.blockVarId
                         );
                     });
                     let closestBlock;
                     let closestDistance = -1;
-                    varBlocks.forEach(blockId=>{
-                        let block = vm.editingTarget.blocks.getBlock(blockId);
-                        if(!block.parent) {
-                            let distance = getDistance({x:block.x,y:block.y},oldCoordinate);
-                            if(!closestBlock || distance < closestDistance) {
+                    varBlocks.forEach(blockId => {
+                        const block = vm.editingTarget.blocks.getBlock(blockId);
+                        if (!block.parent) {
+                            const distance = getDistance({ x: block.x, y: block.y }, oldCoordinate);
+                            if (!closestBlock || distance < closestDistance) {
                                 closestBlock = block;
                                 closestDistance = distance;
                             }
                         }
                     });
-                    if(!closestBlock) {/*console.log('bruh')*/}
-                    else {
+                    if (closestBlock) {
                         vEvent.blockId = closestBlock.id;
                         bEvent.blockId = closestBlock.id;
-                        if(d.type == 'delete') {
+                        if (d.type === 'delete') {
                             bEvent.ids = [closestBlock.id];
                             vEvent.ids = [closestBlock.id];
                         }
@@ -1088,173 +1049,169 @@ async function activateLivescratch() {
             }
 
             //find true field
-            let queueUpdate = false;
-            if(!!d.extrargs.fieldTag) {
-                let realId = vm.editingTarget.blocks.getBlock(d.extrargs.parentId).inputs[d.extrargs.fieldTag].shadow;
-                // queueUpdate = vm.editingTarget.blocks.getBlock(realId)?.opcode == 'sensing_of_object_menu' // workspace update if updates mid-
+            const queueUpdate = false;
+            if (!!d.extrargs.fieldTag) {
+                const realId = vm.editingTarget.blocks.getBlock(d.extrargs.parentId).inputs[d.extrargs.fieldTag].shadow;
+                // queueUpdate = vm.editingTarget.blocks.getBlock(realId)?.opcode === 'sensing_of_object_menu' // workspace update if updates mid-
                 vEvent.blockId = realId;
                 bEvent.blockId = realId;
             }
 
             // create broadcast if needed
-            if(!!d.extrargs.broadcastName && !vm.runtime.getTargetForStage().variables[d.json.newValue]) {
-                let createVmEvent = {isCloud: false, isLocal: false, type: 'var_create', varId: d.extrargs.broadcastId, varName: d.extrargs.broadcastName, varType: 'broadcast_msg'};
-                console.log('remaking broadcast',createVmEvent);
+            if (!!d.extrargs.broadcastName && !vm.runtime.getTargetForStage().variables[d.json.newValue]) {
+                const createVmEvent = { isCloud: false, isLocal: false, type: 'var_create', varId: d.extrargs.broadcastId, varName: d.extrargs.broadcastName, varType: 'broadcast_msg' };
                 vm.blockListener(createVmEvent);
 
-                if(isWorkspaceAccessable()) {
-                    let createBlEvent = ScratchBlocks.Events.fromJson(createVmEvent,getWorkspace());
-                    livescratchEvents[getStringEventRep(createBlEvent)] = true;
+                if (isWorkspaceAccessable()) {
+                    const createBlEvent = ScratchBlocks.Events.fromJson(createVmEvent, getWorkspace());
+                    remoteEvents[getStringEventRep(createBlEvent)] = true;
                     createBlEvent.run(true);
                 }
             }
 
             //xml
-            if(!!d.extrargs.xml) {
+            if (!!d.extrargs.xml) {
                 vEvent.xml = d.extrargs.xml;
             }
 
             // add comment create xy
-            if(d.type == 'comment_create') {
+            if (d.type === 'comment_create') {
                 bEvent.xy = d.event.xy;
             }
 
-            if(
+            if (
                 (
-                    (targetToName(oldEditingTarget) == d.target && !pauseEventHandling) || // if in same editing target that event is for
-            (['var_create','var_delete'].indexOf(d.type) != -1 && !d.json.isLocal) // or if event is a global variable create or delete
+                    (targetToName(oldEditingTarget) === d.target && !pauseEventHandling) || // if in same editing target that event is for
+            (['var_create', 'var_delete'].indexOf(d.type) !== -1 && !d.json.isLocal) // or if event is a global variable create or delete
                 )
         && isWorkspaceAccessable() // and no matter what make sure that workspace is accessable
-            ){
+            ) {
                 // save speedy move and delete events for later
-                if((bEvent.type == 'move' || bEvent.type == 'delete') && bEvent.blockId in toBeMoved) {toBeMoved[bEvent.blockId].push(d);}
-                else{
+                if ((bEvent.type === 'move' || bEvent.type === 'delete') && bEvent.blockId in toBeMoved) { toBeMoved[bEvent.blockId].push(d); } else {
                     //inject directly into blockly
-                    if(!isBadToRunBlockly(bEvent,getWorkspace()) && !isBadToRun(bEvent,vm.editingTarget)) {
+                    if (!isBadToRunBlockly(bEvent, getWorkspace()) && !isBadToRun(bEvent, vm.editingTarget)) {
                         // record newly made block so that we can intercept it's blockly auto-generated move event later
                         // ...dont record it for newly created custom block definitions
-                        if(bEvent.type == 'create' && !d.extrargs.isCBCreateOrDelete){toBeMoved[bEvent.blockId] = [];} 
+                        if (bEvent.type === 'create' && !d.extrargs.isCBCreateOrDelete) { toBeMoved[bEvent.blockId] = []; }
                         // record played livescratch event
-                        livescratchEvents[getStringEventRep(bEvent)] = true;
+                        remoteEvents[getStringEventRep(bEvent)] = true;
                         // run event
 
                         // try to add transition element stuff
                         // if(false ) {
-                        if(bEvent.type == 'move') {
-                            let blockElement = getWorkspace()?.getBlockById(bEvent.blockId)?.getSvgRoot();
-                            console.log(blockElement);
-                            if(blockElement) {
-                                blockElement.style.transition='transform 0.5s';
+                        if (bEvent.type === 'move') {
+                            const blockElement = getWorkspace()?.getBlockById(bEvent.blockId)?.getSvgRoot();
+                            if (blockElement) {
+                                blockElement.style.transition = 'transform 0.5s';
                             }
                         }
                         // }
-    
+
                         // blockElement?.style.transitionProperty='transform';
 
                         bEvent.run(true);
                         // blockElement?.style.transition='transform 0.5s';
 
-                        lastEventRun = bEvent; 
+                        lastEventRun = bEvent;
 
                         // for custom blocks, update toolbox
-                        if(bEvent.element == 'mutation' || d.extrargs.isCBCreateOrDelete) {
+                        if (bEvent.element === 'mutation' || d.extrargs.isCBCreateOrDelete) {
                             getWorkspace().getToolbox().refreshSelection();
                         }
 
                         // highlight blocks
-                        if(['create','move','change'].indexOf(bEvent.type)) {
-                            let blockId = bEvent.blockId;
-                            try{
+                        if (['create', 'move', 'change'].indexOf(bEvent.type)) {
+                            const blockId = bEvent.blockId;
+                            try {
                                 outlineBlock(blockId, d.user);
-                            } catch (e) {console.error(e);}
+                            } catch (e) { console.error(e); }
                         }
                         // 'comment_create','comment_change','comment_move'
 
                     }
                 }
             } else {
-                if(!isBadToRun(vEvent,vm.editingTarget)) {
+                if (!isBadToRun(vEvent, vm.editingTarget)) {
                     vm.editingTarget.blocks.blocklyListen(vEvent);
                 }
             }
-        }catch(e) {console.error('error on block event execution',e);}
+        } catch (e) { console.error('error on block event execution', e); }
         //reset editing target
-        if(!oldEditingTarget) {console.log('old editing target is undefined!');}
-        if(!!oldEditingTarget && !!vm.runtime.getTargetById(oldEditingTarget.id)) {
+        if (oldEditingTarget && vm.runtime.getTargetById(oldEditingTarget.id)) {
             vm.editingTarget = oldEditingTarget;
             vm.runtime._editingTarget = oldEditingTarget;
         }
         continueWorkspaceUpdating();
     }
 
-    let oldTargUp = vm.emitTargetsUpdate.bind(vm);
+    const oldTargUp = vm.emitTargetsUpdate.bind(vm);
     // window.BL_UTILS.unsafeTargetsUpdate=oldTargUp;
     window.etuListeners = [];
     vm.emitTargetsUpdate = function(...args) {
-        etuListeners.forEach(e=>{try{e?.();}catch(e){console.error(e);}});
+        etuListeners.forEach(e => { try { e?.(); } catch (e) { console.error(e); } });
         etuListeners = [];
-        if(pauseEventHandling) {return;}
-        else {oldTargUp(...args);}
+        if (pauseEventHandling) { return; } else { oldTargUp(...args); }
 
     // move my bubble
         //    moveMyBubble()
     };
 
-    let oldEWU = (vm.emitWorkspaceUpdate).bind(vm);
+    const oldEWU = (vm.emitWorkspaceUpdate).bind(vm);
 
     bl_workspaceUpdatingPaused = false;
     bl_workspaceUpdateRequested = false;
     function pauseWorkspaceUpdating() {
-        bl_workspaceUpdatingPaused = true;  
+        bl_workspaceUpdatingPaused = true;
     }
     function continueWorkspaceUpdating() {
         bl_workspaceUpdatingPaused = false;
-        if(bl_workspaceUpdateRequested) {vm.emitWorkspaceUpdate();}
+        if (bl_workspaceUpdateRequested) { vm.emitWorkspaceUpdate(); }
         bl_workspaceUpdateRequested = false;
     }
 
     vm.emitWorkspaceUpdate = function() {
-        if(pauseEventHandling) {console.log('workspace update voided'); return;}
-        if(bl_workspaceUpdatingPaused) {bl_workspaceUpdateRequested = true; console.log('workspace update saved'); return;}
-        if(!isWorkspaceAccessable()) {return;}
+        if (pauseEventHandling) return;
+        if (bl_workspaceUpdatingPaused) {
+            bl_workspaceUpdateRequested = true;
+            return;
+        }
+        if (!isWorkspaceAccessable()) { return; }
 
-        console.log('WORKSPACE UPDATING');
         // add deletes for comments
-        getWorkspace()?.getTopComments().forEach(comment=>{
-            livescratchEvents[getStringEventRep({type:'comment_delete',commentId:comment.id})] = true;
+        getWorkspace()?.getTopComments().forEach(comment => {
+            remoteEvents[getStringEventRep({ type: 'comment_delete', commentId: comment.id })] = true;
         });
         // add creates for comments in new workspace
-        Object.keys(vm.editingTarget.comments).forEach(commentId=>{
-            livescratchEvents[getStringEventRep({type:'comment_create',commentId})] = true;
+        Object.keys(vm.editingTarget.comments).forEach(commentId => {
+            remoteEvents[getStringEventRep({ type: 'comment_create', commentId })] = true;
         });
         // add deletes for top blocks in current workspace
-        (getWorkspace()?.getTopBlocks?.(false) ?? []).forEach(block=>{
-            livescratchEvents[getStringEventRep({type:'delete',blockId:block.id})] = true;
+        (getWorkspace()?.getTopBlocks?.(false) ?? []).forEach(block => {
+            remoteEvents[getStringEventRep({ type: 'delete', blockId: block.id })] = true;
         });
         // add creates for all blocks in new workspace
-        Object.keys(vm.editingTarget.blocks._blocks).forEach(blockId=>{
-            livescratchEvents[getStringEventRep({type:'create',blockId})] = true;
-            let block = vm.editingTarget.blocks._blocks[blockId];
-            if(!block.parent) {
-                let moveRep = getStringEventRep({
-                    type:'move',
+        Object.keys(vm.editingTarget.blocks._blocks).forEach(blockId => {
+            remoteEvents[getStringEventRep({ type: 'create', blockId })] = true;
+            const block = vm.editingTarget.blocks._blocks[blockId];
+            if (!block.parent) {
+                const moveRep = getStringEventRep({
+                    type: 'move',
                     blockId,
-                    newCoordinate:{x:block.x,y:block.y},
-                    newParentId:block.parent,
+                    newCoordinate: { x: block.x, y: block.y },
+                    newParentId: block.parent,
                 });
-                console.log(moveRep);
-                livescratchEvents[moveRep] = true;
+                remoteEvents[moveRep] = true;
             }
         });
         // add var creates and deletes
-        Object.entries(vm.editingTarget.variables).forEach(varr=>{
-            livescratchEvents[getStringEventRep({type:'var_delete',varId:varr[0],isCloud:varr[1].isCloud,varName:varr[1].name,isLocal:false})] = true;
-            livescratchEvents[getStringEventRep({type:'var_create',varId:varr[0],isCloud:varr[1].isCloud,varName:varr[1].name,isLocal:true})] = true;
+        Object.entries(vm.editingTarget.variables).forEach(varr => {
+            remoteEvents[getStringEventRep({ type: 'var_delete', varId: varr[0], isCloud: varr[1].isCloud, varName: varr[1].name, isLocal: false })] = true;
+            remoteEvents[getStringEventRep({ type: 'var_create', varId: varr[0], isCloud: varr[1].isCloud, varName: varr[1].name, isLocal: true })] = true;
         });
         // add global (local:false) var creates
-        Object.entries(vm.runtime.getTargetForStage().variables).forEach(varr=>{
-        // livescratchEvents[getStringEventRep({type:'var_delete',varId:varr[0],isCloud:varr[1].isCloud,varName:varr[1].name,isLocal:false})] = true
-            livescratchEvents[getStringEventRep({type:'var_create',varId:varr[0],isCloud:varr[1].isCloud,varName:varr[1].name,isLocal:false})] = true;
+        Object.entries(vm.runtime.getTargetForStage().variables).forEach(varr => {
+        // remoteEvents[getStringEventRep({type:'var_delete',varId:varr[0],isCloud:varr[1].isCloud,varName:varr[1].name,isLocal:false})] = true
+            remoteEvents[getStringEventRep({ type: 'var_create', varId: varr[0], isCloud: varr[1].isCloud, varName: varr[1].name, isLocal: false })] = true;
         });
 
         oldEWU();
@@ -1263,7 +1220,7 @@ async function activateLivescratch() {
     // Blockly.getMainWorkspace().getAllBlocks().forEach(block=>{block.getSvgRoot().style.transition='transform 0.5s';})
     };
 
-    //////////////////////////////// load-costume copied (modified to remove dependencies) from https://github.com/LLK/scratch-vm/blob/develop/src/import/load-costume.js ////////////////////////////////// 
+    //////////////////////////////// load-costume copied (modified to remove dependencies) from https://github.com/LLK/scratch-vm/blob/develop/src/import/load-costume.js //////////////////////////////////
 
     let BL_load_costume = {};
     {
@@ -1343,7 +1300,7 @@ async function activateLivescratch() {
 
                 if (typeof createImageBitmap !== 'undefined') {
                     return createImageBitmap(
-                        new Blob([asset.data], {type: asset.assetType.contentType}),
+                        new Blob([asset.data], { type: asset.assetType.contentType }),
                     );
                 }
 
@@ -1446,7 +1403,7 @@ async function activateLivescratch() {
 
                     return fetched;
                 })
-                .then(({canvas, mergeCanvas, rotationCenter}) => {
+                .then(({ canvas, mergeCanvas, rotationCenter }) => {
                     // createBitmapSkin does the right thing if costume.rotationCenter is undefined.
                     // That will be the case if you upload a bitmap asset or create one by taking a photo.
                     let center;
@@ -1491,14 +1448,14 @@ async function activateLivescratch() {
 
             const AssetType = runtime.storage.AssetType;
             const isVector = costume.dataFormat === AssetType.ImageVector.runtimeFormat;
-                
+
             // Use default asset if original fails to load
             costume.assetId = isVector ?
                 runtime.storage.defaultAssetId.ImageVector :
                 runtime.storage.defaultAssetId.ImageBitmap;
             costume.asset = runtime.storage.get(costume.assetId);
             costume.md5 = `${costume.assetId}.${costume.asset.dataFormat}`;
-    
+
             const defaultCostumePromise = (isVector) ?
                 loadVector_(costume, runtime) : loadBitmap_(costume, runtime);
 
@@ -1510,7 +1467,7 @@ async function activateLivescratch() {
                 // Should be null if we got here because the costume was missing
                 loadedCostume.broken.asset = oldAsset;
                 loadedCostume.broken.dataFormat = oldDataFormat;
-        
+
                 loadedCostume.broken.rotationCenterX = oldRotationX;
                 loadedCostume.broken.rotationCenterY = oldRotationY;
                 loadedCostume.broken.bitmapResolution = oldBitmapResolution;
@@ -1628,7 +1585,7 @@ async function activateLivescratch() {
             loadCostumeFromAsset,
         };
     };
-    //////////////////////////////////////////// end load-costume ////////////////////////////////////////////// 
+    //////////////////////////////////////////// end load-costume //////////////////////////////////////////////
 
     // vm.editingTarget = a;
     // vm.emitTargetsUpdate(false /* Don't emit project change */);
@@ -1648,34 +1605,34 @@ async function activateLivescratch() {
     //sounds
 
 
-    vm.updateSoundBuffer = asyncEditingProxy(vm.updateSoundBuffer,'updatesound',null,null,(args)=>{
-        let extrargs = {};
+    vm.updateSoundBuffer = asyncEditingProxy(vm.updateSoundBuffer, 'updatesound', null, null, (args) => {
+        const extrargs = {};
         return extrargs;
-    },async (data)=>{
-        let retArgs = data.args;
+    }, async (data) => {
+        const retArgs = data.args;
         retArgs[2] = Uint8Array.from(Object.values(retArgs[2]));
         // WOW im proud of this one! Create an AudioBuffer from Uint8Array
-        retArgs[1] = await (new AudioContext({sampleRate:retArgs[1].sampleRate})).decodeAudioData(retArgs[2].buffer.slice(0));
+        retArgs[1] = await (new AudioContext({ sampleRate: retArgs[1].sampleRate })).decodeAudioData(retArgs[2].buffer.slice(0));
         // Wait no that requires async programming which i dont have here ugggggg
-        // LOL JK GET DESTROYED NERRRDDDDDDDD i have the power of anime and copying code on mY SIDE!    
+        // Keep the variable reporter aligned with the current monitor value.
         return retArgs;
     });
 
 
-    vm.addSound = proxy(vm.addSound,'addsound',
-        (args)=>{
+    vm.addSound = proxy(vm.addSound, 'addsound',
+        (args) => {
             let targetName;
-            if(!!args[1]){targetName = targetToName(vm.runtime.getTargetById(args[1]));} else {targetName = targetToName(vm.editingTarget);}
-            return {target:targetName};
+            if (!!args[1]) { targetName = targetToName(vm.runtime.getTargetById(args[1])); } else { targetName = targetToName(vm.editingTarget); }
+            return { target: targetName };
         },
-        (data)=>{
-            let ret = [data.args[0],nameToTarget(data.extrargs.target)?.id];
-            if(ret[0]?.asset?.data) {
+        (data) => {
+            const ret = [data.args[0], nameToTarget(data.extrargs.target)?.id];
+            if (ret[0]?.asset?.data) {
             // adapted from scratch source 'file-uploader'
                 ret[0].asset = vm.runtime.storage.createAsset(
-                    ret[0].asset.assetType, 
+                    ret[0].asset.assetType,
                     ret[0].asset.dataFormat,
-                    Uint8Array.from(Object.values(ret[0].asset.data)),null,true);
+                    Uint8Array.from(Object.values(ret[0].asset.data)), null, true);
                 ret[0] = {
                     name: ret[0].name,
                     dataFormat: ret[0].asset.dataFormat,
@@ -1692,39 +1649,39 @@ async function activateLivescratch() {
 
 
 
-    vm.duplicateSound = editingProxy(vm.duplicateSound,'duplicatesound');
-    vm.deleteSound = editingProxy(vm.deleteSound,'deletesound');
-    vm.renameSound = editingProxy(vm.renameSound,'renamesound');
-    vm.shareSoundToTarget = editingProxy(vm.shareSoundToTarget,'sharesound');
-    vm.reorderSound = proxy(vm.reorderSound,'reordersound',
-        (args)=>({target:targetToName(vm.runtime.getTargetById(args[0]))}),
-        (data)=>[nameToTarget(data.extrargs.target).id,data.args[1],data.args[2]],null);
+    vm.duplicateSound = editingProxy(vm.duplicateSound, 'duplicatesound');
+    vm.deleteSound = editingProxy(vm.deleteSound, 'deletesound');
+    vm.renameSound = editingProxy(vm.renameSound, 'renamesound');
+    vm.shareSoundToTarget = editingProxy(vm.shareSoundToTarget, 'sharesound');
+    vm.reorderSound = proxy(vm.reorderSound, 'reordersound',
+        (args) => ({ target: targetToName(vm.runtime.getTargetById(args[0])) }),
+        (data) => [nameToTarget(data.extrargs.target).id, data.args[1], data.args[2]], null);
 
-    // costumes    
-    vm.renameCostume = editingProxy(vm.renameCostume,'renamecostume');
-    vm.duplicateCostume = editingProxy(vm.duplicateCostume,'dupecostume');
-    vm.deleteCostume = editingProxy(vm.deleteCostume,'deletecostume');
-    vm.reorderCostume = proxy(vm.reorderCostume,'reordercostume',
-        (args)=>({target:targetToName(vm.runtime.getTargetById(args[0]))}),
-        (data)=>[nameToTarget(data.extrargs.target).id,data.args[1],data.args[2]],null,
-        ()=>{vm.emitTargetsUpdate();});
-    vm.shareCostumeToTarget = editingProxy(vm.shareCostumeToTarget,'sharecostume',null,null,(args)=>({
-        targettarget:BL_UTILS.targetToName(vm.runtime.getTargetById(args[1])),
-    }),(data)=>([data.args[0],BL_UTILS.nameToTarget(data.extrargs.targettarget)?.id]));
-    vm.addCostume = proxy(vm.addCostume,'addcostume',
-        (args)=>{
+    // costumes
+    vm.renameCostume = editingProxy(vm.renameCostume, 'renamecostume');
+    vm.duplicateCostume = editingProxy(vm.duplicateCostume, 'dupecostume');
+    vm.deleteCostume = editingProxy(vm.deleteCostume, 'deletecostume');
+    vm.reorderCostume = proxy(vm.reorderCostume, 'reordercostume',
+        (args) => ({ target: targetToName(vm.runtime.getTargetById(args[0])) }),
+        (data) => [nameToTarget(data.extrargs.target).id, data.args[1], data.args[2]], null,
+        () => { vm.emitTargetsUpdate(); });
+    vm.shareCostumeToTarget = editingProxy(vm.shareCostumeToTarget, 'sharecostume', null, null, (args) => ({
+        targettarget: BL_UTILS.targetToName(vm.runtime.getTargetById(args[1])),
+    }), (data) => ([data.args[0], BL_UTILS.nameToTarget(data.extrargs.targettarget)?.id]));
+    vm.addCostume = proxy(vm.addCostume, 'addcostume',
+        (args) => {
             let targetName;
-            if(!!args[2]){targetName = targetToName(vm.runtime.getTargetById(args[2]));} else {targetName = targetToName(vm.editingTarget);}
-            return {target:targetName};
+            if (!!args[2]) { targetName = targetToName(vm.runtime.getTargetById(args[2])); } else { targetName = targetToName(vm.editingTarget); }
+            return { target: targetName };
         },
-        (data)=>{
-            let ret = [data.args[0],data.args[1],nameToTarget(data.extrargs.target)?.id,data.args[3]];
-            if(ret[1]?.asset?.data) {
+        (data) => {
+            const ret = [data.args[0], data.args[1], nameToTarget(data.extrargs.target)?.id, data.args[3]];
+            if (ret[1]?.asset?.data) {
             // adapted from scratch source 'file-uploader'
                 ret[1].asset = vm.runtime.storage.createAsset(
-                    ret[1].asset.assetType, 
+                    ret[1].asset.assetType,
                     ret[1].asset.dataFormat,
-                    Uint8Array.from(Object.values(ret[1].asset.data)),null,true);
+                    Uint8Array.from(Object.values(ret[1].asset.data)), null, true);
                 ret[1] = {
                     name: null,
                     dataFormat: ret[1].asset.dataFormat,
@@ -1737,16 +1694,16 @@ async function activateLivescratch() {
         },
     );
 
-    vm.addBackdrop = proxy(vm.addBackdrop,'addbackdrop',
+    vm.addBackdrop = proxy(vm.addBackdrop, 'addbackdrop',
         null,
-        (data)=>{
-            let ret = [data.args[0],data.args[1]];
-            if(ret[1]?.asset?.data) {
+        (data) => {
+            const ret = [data.args[0], data.args[1]];
+            if (ret[1]?.asset?.data) {
             // adapted from scratch source 'file-uploader'
                 ret[1].asset = vm.runtime.storage.createAsset(
-                    ret[1].asset.assetType, 
+                    ret[1].asset.assetType,
                     ret[1].asset.dataFormat,
-                    Uint8Array.from(Object.values(ret[1].asset.data)),null,true);
+                    Uint8Array.from(Object.values(ret[1].asset.data)), null, true);
                 ret[1] = {
                     name: null,
                     dataFormat: ret[1].asset.dataFormat,
@@ -1760,9 +1717,8 @@ async function activateLivescratch() {
     );
     // vm.updateBitmap = editingProxy(vm.updateBitmap,"updatebitmap",null,(_a,_b,data)=>{
     //     let costumeIndex = getSelectedCostumeIndex()
-    //     // console.log(data)
     //     // update paint editor if reciever is editing the costume
-    //     if(targetToName(vm.editingTarget) == data.extrargs.target && costumeIndex != -1 && costumeIndex == data.args[0]) {
+    //     if(targetToName(vm.editingTarget) === data.extrargs.target && costumeIndex !== -1 && costumeIndex === data.args[0]) {
     //         // todo use some other method of refreshing the canvas
     //         document.getElementById('react-tabs-4').click()
     //         document.getElementById('react-tabs-2').click()
@@ -1776,13 +1732,11 @@ async function activateLivescratch() {
     //     })
     // vm.updateSvg = editingProxy(vm.updateSvg,"updatesvg",null,(_a,_b,data)=>{
     //     let costumeIndex = getSelectedCostumeIndex()
-    //     // console.log(data)
     //     // update paint editor if reciever is editing the costume
     //     // todo: instead of checking with vm.editingTarget, use _a or _b
-    //     if(targetToName(_a) == data.extrargs.target && costumeIndex != -1 && costumeIndex == data.args[0]) {
+    //     if(targetToName(_a) === data.extrargs.target && costumeIndex !== -1 && costumeIndex === data.args[0]) {
     //         let costume = vm.editingTarget.getCostumes()[costumeIndex]
     //         let paper = getPaper()
-    //         console.log('switching paper costume')
     //         if(!paper) {return;}
     //         paper.switchCostume(
     //             costume.dataFormat,
@@ -1793,55 +1747,51 @@ async function activateLivescratch() {
     //             paper.props.zoomLevelId)
     //     }
     // })
-    let oldUpdateBitmap = vm.updateBitmap;
-    vm.updateBitmap = (...args)=>{
+    const oldUpdateBitmap = vm.updateBitmap;
+    vm.updateBitmap = (...args) => {
     // args: costumeIndex, bitmap, rotationCenterX, rotationCenterY, bitmapResolution
         oldUpdateBitmap.bind(vm)(...args);
         // vm runs emitTargetsUpdate after creating new asset
-        etuListeners.push(async()=>{
-            let target = BL_UTILS.targetToName(vm.editingTarget);
+        etuListeners.push(async() => {
+            const target = BL_UTILS.targetToName(vm.editingTarget);
 
-            let costumeIndex = args[0];
-            let bitmapResolution = args[4];
-            let costume = vm.editingTarget.getCostumes()[costumeIndex];
-            let sendCostume = JSON.parse(JSON.stringify(costume));
+            const costumeIndex = args[0];
+            const bitmapResolution = args[4];
+            const costume = vm.editingTarget.getCostumes()[costumeIndex];
+            const sendCostume = JSON.parse(JSON.stringify(costume));
             delete sendCostume.asset;
-            console.log(costume);
-            let asset = costume.asset;
-    
-            let bitmap = args[1];
-            let w=bitmap.sourceWidth === 0 ? 0 : bitmap.width;
-            let h=bitmap.sourceHeight === 0 ? 0 : bitmap.height;
+            const asset = costume.asset;
+
+            const bitmap = args[1];
+            const w = bitmap.sourceWidth === 0 ? 0 : bitmap.width;
+            const h = bitmap.sourceHeight === 0 ? 0 : bitmap.height;
 
             // send costume to scratch servers
-            let stored = await vm.runtime.storage.store(asset.assetType,asset.dataFormat,asset.data,asset.assetId);
+            const stored = await vm.runtime.storage.store(asset.assetType, asset.dataFormat, asset.data, asset.assetId);
             // get costume info to send
 
-            liveMessage({meta:'vm.updateBitmap',costume:sendCostume,target,costumeIndex,assetType:asset.assetType,h,w,bitmapResolution});
+            liveMessage({ meta: 'vm.updateBitmap', costume: sendCostume, target, costumeIndex, assetType: asset.assetType, h, w, bitmapResolution });
         });
     };
     async function updateBitmap(msg) {
-        console.log(msg);
-        console.log(msg.costume.assetId);
-        let target = BL_UTILS.nameToTarget(msg.target);
-        let costume = target.getCostumes()[msg.costumeIndex];
-        asset = await vm.runtime.storage.load(msg.assetType,msg.costume.assetId,msg.costume.dataFormat);
+        const target = BL_UTILS.nameToTarget(msg.target);
+        const costume = target.getCostumes()[msg.costumeIndex];
+        asset = await vm.runtime.storage.load(msg.assetType, msg.costume.assetId, msg.costume.dataFormat);
 
         costume.asset = asset;
-        Object.entries(msg.costume).forEach(entry=>{
+        Object.entries(msg.costume).forEach(entry => {
             costume[entry[0]] = entry[1];
         },
         );
 
         vm.emitTargetsUpdate();
 
-        // update paper 
-        let selectedCostumeIndex = getSelectedCostumeIndex();
-        if(BL_UTILS.targetToName(vm.editingTarget) == msg.target && selectedCostumeIndex != -1 && msg.costumeIndex == selectedCostumeIndex) {
-            let costume = vm.editingTarget.getCostumes()[msg.costumeIndex];
-            let paper = getPaper();
-            console.log('switching paper costume');
-            if(!paper) {return;}
+        // update paper
+        const selectedCostumeIndex = getSelectedCostumeIndex();
+        if (BL_UTILS.targetToName(vm.editingTarget) === msg.target && selectedCostumeIndex !== -1 && msg.costumeIndex === selectedCostumeIndex) {
+            const costume = vm.editingTarget.getCostumes()[msg.costumeIndex];
+            const paper = getPaper();
+            if (!paper) { return; }
             paper.switchCostume(
                 costume.dataFormat,
                 costume.asset.encodeDataURI(),
@@ -1852,11 +1802,10 @@ async function activateLivescratch() {
         }
 
         // update renderer costume skins [VERY IMPORTANT FOR RENDER!]
-        await BL_load_costume.loadCostume(costume.md5,costume,vm.runtime);
+        await BL_load_costume.loadCostume(costume.md5, costume, vm.runtime);
         target.updateAllDrawableProperties();
 
         // image = new ImageData(new Uint8ClampedArray(asset.data.buffer),msg.w,msg.h)
-        // console.log(image)
 
         /// TODO GET BITMAP SHOWING UP IN RENDER
         // const tmpCanvas = document.createElement('canvas');
@@ -1866,7 +1815,6 @@ async function activateLivescratch() {
         // const imageData = tmpCtx.createImageData(msg.w, msg.h);
         // imageData.data.set(asset.data);
         // tmpCtx.putImageData(imageData, 0, 0);
-        // console.log(imageData)
 
     // vm.runtime.renderer.updateBitmapSkin(
     //     costume.skinId,
@@ -1884,42 +1832,38 @@ async function activateLivescratch() {
 
 
 
-    let oldUpdateSvg = vm.updateSvg;
-    vm.updateSvg = (...args)=>{
+    const oldUpdateSvg = vm.updateSvg;
+    vm.updateSvg = (...args) => {
 
-        console.log('updateSvg args:',args);
         // args: costumeIndex, bitmap, rotationCenterX, rotationCenterY, bitmapResolution
         oldUpdateSvg.bind(vm)(...args);
 
         // vm runs emitTargetsUpdate after creating new asset
-        {(async()=>{
-            let target = BL_UTILS.targetToName(vm.editingTarget);
+        { (async() => {
+            const target = BL_UTILS.targetToName(vm.editingTarget);
 
-            let costumeIndex = args[0];
-            let costume = vm.editingTarget.getCostumes()[costumeIndex];
-            let sendCostume = JSON.parse(JSON.stringify(costume));
+            const costumeIndex = args[0];
+            const costume = vm.editingTarget.getCostumes()[costumeIndex];
+            const sendCostume = JSON.parse(JSON.stringify(costume));
             delete sendCostume.asset;
-            console.log(costume);
-            let asset = costume.asset;
+            const asset = costume.asset;
 
             // send costume to scratch servers
-            let stored = await vm.runtime.storage.store(asset.assetType,asset.dataFormat,asset.data,asset.assetId);
+            const stored = await vm.runtime.storage.store(asset.assetType, asset.dataFormat, asset.data, asset.assetId);
             // get costume info to send
 
-            liveMessage({meta:'vm.updateSvg',costume:sendCostume,target,costumeIndex,assetType:asset.assetType});
-        })();}
+            liveMessage({ meta: 'vm.updateSvg', costume: sendCostume, target, costumeIndex, assetType: asset.assetType });
+        })(); }
 
     };
     async function updateSvg(msg) {
-        console.log(msg);
-        console.log(msg.costume.assetId);
-        let target = BL_UTILS.nameToTarget(msg.target);
-        let costume = target.getCostumes()[msg.costumeIndex];
-        asset = await vm.runtime.storage.load(msg.assetType,msg.costume.assetId,msg.costume.dataFormat);
+        const target = BL_UTILS.nameToTarget(msg.target);
+        const costume = target.getCostumes()[msg.costumeIndex];
+        asset = await vm.runtime.storage.load(msg.assetType, msg.costume.assetId, msg.costume.dataFormat);
 
         costume.asset = asset;
-        Object.entries(msg.costume).forEach(entry=>{
-            if(entry[0]=='skinId'){return;}
+        Object.entries(msg.costume).forEach(entry => {
+            if (entry[0] === 'skinId') { return; }
             costume[entry[0]] = entry[1];
         });
 
@@ -1928,17 +1872,16 @@ async function activateLivescratch() {
         // update skin
         if (vm?.runtime?.renderer) {
         // costume data to xml svg dom text
-            let svg = new TextDecoder().decode(costume.asset.data);
+            const svg = new TextDecoder().decode(costume.asset.data);
             vm.runtime.renderer.updateSVGSkin(costume.skinId, svg, [costume.rotationCenterX, costume.rotationCenterY]);
         }
 
-        // update paper 
-        let selectedCostumeIndex = getSelectedCostumeIndex();
-        if(BL_UTILS.targetToName(vm.editingTarget) == msg.target && selectedCostumeIndex != -1 && msg.costumeIndex == selectedCostumeIndex) {
-            let costume = vm.editingTarget.getCostumes()[msg.costumeIndex];
-            let paper = getPaper();
-            console.log('switching paper costume');
-            if(!paper) {return;}
+        // update paper
+        const selectedCostumeIndex = getSelectedCostumeIndex();
+        if (BL_UTILS.targetToName(vm.editingTarget) === msg.target && selectedCostumeIndex !== -1 && msg.costumeIndex === selectedCostumeIndex) {
+            const costume = vm.editingTarget.getCostumes()[msg.costumeIndex];
+            const paper = getPaper();
+            if (!paper) { return; }
             paper.switchCostume(
                 costume.dataFormat,
                 costume.asset.encodeDataURI(),
@@ -1966,113 +1909,108 @@ async function activateLivescratch() {
     // vm.updateSvg = proxy(vm.updateSvg,"updatesvg",null,null,null,()=>{vm.emitTargetsUpdate();vm.emitWorkspaceUpdate()})
     newTargetEvents = {}; // targetName => [events...] //todo make let statement
     function addNewTargetEvent(targetName, event) {
-        if(!(targetName in newTargetEvents)) {
+        if (!(targetName in newTargetEvents)) {
             newTargetEvents[targetName] = [];
         }
         newTargetEvents[targetName].push(event);
     }
 
     // ()=>{pauseEventHandling = true},(
-    vm.addSprite = proxy(vm.addSprite,'addsprite',(args)=>{
-        if(args[0] instanceof ArrayBuffer) {
-            console.log(args);
-            console.log('addsprite',args);
-            return {spritearray:Array.from(new Uint8Array(args[0]))};
+    vm.addSprite = proxy(vm.addSprite, 'addsprite', (args) => {
+        if (args[0] instanceof ArrayBuffer) {
+            return { spritearray: Array.from(new Uint8Array(args[0])) };
         } else return {};
-    },(data)=>(data.extrargs.spritearray ? [Uint8Array.from(data.extrargs.spritearray).buffer] : [...data.args]),null,(a,b)=>{ vm.setEditingTarget(a.id);  });
-    // vm.addSprite = proxy(vm.addSprite,"addsprite",(a)=>{console.log('🧟‍♂️ NEW SPRITE',a);window.sprite=a},null,null,(a,b)=>{ vm.setEditingTarget(a.id);  })
-    vm.duplicateSprite = proxy(vm.duplicateSprite,'duplicatesprite',
+    }, (data) => (data.extrargs.spritearray ? [Uint8Array.from(data.extrargs.spritearray).buffer] : [...data.args]), null, (a, b) => { vm.setEditingTarget(a.id); });
+    vm.duplicateSprite = proxy(vm.duplicateSprite, 'duplicatesprite',
     // extrargs
-        (args)=>({name:targetToName(vm.runtime.getTargetById(args[0]))}),
-        (data)=>[nameToTarget(data.extrargs.name)?.id],
-        ()=>{pauseEventHandling = true;},
-        ((a,b,n,result)=>{
+        (args) => ({ name: targetToName(vm.runtime.getTargetById(args[0])) }),
+        (data) => [nameToTarget(data.extrargs.name)?.id],
+        () => { pauseEventHandling = true; },
+        ((a, b, n, result) => {
             vm.setEditingTarget(a.id);
             pauseEventHandling = false;
-            console.log('🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔🔔 stuff done! b, result',b,result); 
-            newTargetEvents[b.sprite.name]?.forEach(event=>livescratchListener(event));
-        
-        }),null,null,()=>{
+            newTargetEvents[b.sprite.name]?.forEach(event => collaborationListener(event));
+
+        }), null, null, () => {
         // send replace blocks message
-            liveMessage({meta:'vm.replaceBlocks',target:targetToName(vm.editingTarget),blocks:vm.editingTarget.blocks._blocks});
+            liveMessage({ meta: 'vm.replaceBlocks', target: targetToName(vm.editingTarget), blocks: vm.editingTarget.blocks._blocks });
         });
     // Object.keys(vm.editingTarget.blocks._blocks).forEach(v=>{vm.editingTarget.blocks.deleteBlock(v)})
-    vm.deleteSprite = proxy(vm.deleteSprite,'deletesprite',
-        (args)=>({name:targetToName(vm.runtime.getTargetById(args[0]))}),
-        (data)=>[nameToTarget(data.extrargs.name).id]);
-    vm.renameSprite = proxy(vm.renameSprite,'renamesprite',
-        (args)=>({oldName:targetToName(vm.runtime.getTargetById(args[0]))}),
-        (data)=>[nameToTarget(data.extrargs.oldName).id,data.args[1]]);
-    vm.reorderTarget = proxy(vm.reorderTarget,'reordertarget');
+    vm.deleteSprite = proxy(vm.deleteSprite, 'deletesprite',
+        (args) => ({ name: targetToName(vm.runtime.getTargetById(args[0])) }),
+        (data) => [nameToTarget(data.extrargs.name).id]);
+    vm.renameSprite = proxy(vm.renameSprite, 'renamesprite',
+        (args) => ({ oldName: targetToName(vm.runtime.getTargetById(args[0])) }),
+        (data) => [nameToTarget(data.extrargs.oldName).id, data.args[1]]);
+    vm.reorderTarget = proxy(vm.reorderTarget, 'reordertarget');
     // vm.shareBlocksToTarget = proxy(vm.shareBlocksToTarget,"shareblocks",
     // (args)=>({toName:vm.runtime.getTargetById(args[1]).sprite.name}),
     // (data)=>[data.args[0],vm.runtime.getSpriteTargetByName(data.extrargs.toName).id],null,()=>{vm.emitWorkspaceUpdate()})
-    let oldVmSetCloudProvider = vm.setCloudProvider.bind(vm);
+    const oldVmSetCloudProvider = vm.setCloudProvider.bind(vm);
     vm.setCloudProvider = function(that) {
-        if(!store?.getState()?.preview.projectInfo.is_published && !!that) {
-            console.log('PROVIDER SET', that);
+        if (!store?.getState()?.preview.projectInfo.is_published && !!that) {
             that.projectId = lsId;
         }
         oldVmSetCloudProvider(that);
     };
-    function connectToLivescratchCloud() {
-        if(!lsId) {return;}
+    function connectToCoBlocksCloud() {
+        if (!lsId) { return; }
         vm.runtime.ioDevices.cloud.provider.projectId = lsId;
         vm.runtime.ioDevices.cloud.provider.openConnection();
     }
 
     let shareCreates = [];
     let lastDeletedBlock;
-    waitFor(()=>(vm.editingTarget)).then(()=>{
-        let oldCreateBlock = vm.editingTarget.blocks.__proto__.createBlock;
+    waitFor(() => (vm.editingTarget)).then(() => {
+        const oldCreateBlock = vm.editingTarget.blocks.__proto__.createBlock;
 
         vm.editingTarget.blocks.__proto__.createBlock = function(...args) {
-            if(isTargetSharing) {
+            if (isTargetSharing) {
                 shareCreates.push(args);
             }
-            return oldCreateBlock.call(this,...args);
+            return oldCreateBlock.call(this, ...args);
         };
 
-        let oldDeleteBlock = vm.editingTarget.blocks.__proto__.deleteBlock;
+        const oldDeleteBlock = vm.editingTarget.blocks.__proto__.deleteBlock;
         vm.editingTarget.blocks.__proto__.deleteBlock = function(...args) {
             lastDeletedBlock = this._blocks[args[0]];
-            return oldDeleteBlock.call(this,...args);
+            return oldDeleteBlock.call(this, ...args);
         };
     });
 
-    waitFor(()=>(vm.extensionManager)).then(()=>{
-        vm.extensionManager.loadExtensionURL = 
-    anyproxy(vm.extensionManager,vm.extensionManager.loadExtensionURL,'loadextensionurl');
+    waitFor(() => (vm.extensionManager)).then(() => {
+        vm.extensionManager.loadExtensionURL =
+    anyproxy(vm.extensionManager, vm.extensionManager.loadExtensionURL, 'loadextensionurl');
     });
 
 
-    let oldShareBlocksToTarget = vm.shareBlocksToTarget;
+    const oldShareBlocksToTarget = vm.shareBlocksToTarget;
     let isTargetSharing = false;
     vm.shareBlocksToTarget = function(blocks, targetId, optFromTargetId) {
         shareCreates = [];
         isTargetSharing = true;
-        return oldShareBlocksToTarget.bind(vm)(blocks, targetId, optFromTargetId).then(()=>{
+        return oldShareBlocksToTarget.bind(vm)(blocks, targetId, optFromTargetId).then(() => {
             isTargetSharing = false;
-            let targetName = targetToName(vm.runtime.getTargetById(targetId));
-            let fromTargetName = targetToName(vm.runtime.getTargetById(optFromTargetId));
-            liveMessage({meta:'vm.shareBlocks',target:targetName,from:fromTargetName,blocks:shareCreates});
+            const targetName = targetToName(vm.runtime.getTargetById(targetId));
+            const fromTargetName = targetToName(vm.runtime.getTargetById(optFromTargetId));
+            liveMessage({ meta: 'vm.shareBlocks', target: targetName, from: fromTargetName, blocks: shareCreates });
         });
     };
 
     function doShareBlocksMessage(msg) {
-        let target = nameToTarget(msg.target);
-        let targetId = target.id;
-        let fromTargetId = nameToTarget(msg.from)?.id;
+        const target = nameToTarget(msg.target);
+        const targetId = target.id;
+        const fromTargetId = nameToTarget(msg.from)?.id;
         // resolve variable conflicts
         // if(!!fromTargetId) {vm.runtime.getTargetById(fromTargetId).resolveVariableSharingConflictsWithTarget(msg.blocks, target);}
 
         // create new blocks in target
-        msg.blocks.forEach(bargs=>{target.blocks.createBlock(...bargs);});
+        msg.blocks.forEach(bargs => { target.blocks.createBlock(...bargs); });
         target.blocks.updateTargetSpecificBlocks(target.isStage);
 
-        if(targetId == vm.editingTarget.id) {vm.emitWorkspaceUpdate();}
+        if (targetId === vm.editingTarget.id) { vm.emitWorkspaceUpdate(); }
         // update flyout for new variables and blocks
-        if(!isWorkspaceAccessable()){return;}
+        if (!isWorkspaceAccessable()) { return; }
         getWorkspace().getToolbox().refreshSelection();
     }
 
@@ -2083,38 +2021,38 @@ async function activateLivescratch() {
     // port.postMessage();
 
     function postCursorPosition() {
-        let workspace = getWorkspace();
-        if(!workspace) {return;}
-        let scrollX = workspace.scrollX;
-        let scrollY = workspace.scrollY;
-        let scale = workspace.scale;
-        let targetName = BL_UTILS.targetToName(vm.editingTarget);
-        let editorTab = store?.getState()?.scratchGui?.editorTab?.activeTabIndex;
-        let cursor = {scrollX,scrollY,scale,targetName,editorTab};
-        liveMessage({type:'setCursor',cursor});
+        const workspace = getWorkspace();
+        if (!workspace) { return; }
+        const scrollX = workspace.scrollX;
+        const scrollY = workspace.scrollY;
+        const scale = workspace.scale;
+        const targetName = BL_UTILS.targetToName(vm.editingTarget);
+        const editorTab = store?.getState()?.scratchGui?.editorTab?.activeTabIndex;
+        const cursor = { scrollX, scrollY, scale, targetName, editorTab };
+        liveMessage({ type: 'setCursor', cursor });
     }
-    setInterval(postCursorPosition,2500);
+    setInterval(postCursorPosition, 2500);
 
 
 }
 
 
 
-function createTagElement(username,color) {
+function createTagElement(username, color) {
     document.querySelector('rect.blockly-name-tag')?.remove();
     document.querySelector('text.blockly-name-tag')?.remove();
-    var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.style.fontFamily = '"Helvetica Neue", Helvetica, Arial, sans-serif';
     text.setAttribute('fill', 'white');
     text.style.fontSize = '1.25rem';
     text.style.transform = 'translate(.5rem, -1rem)';
-    var newUsername = username;
+    let newUsername = username;
     if (username.length > 12) {
-        newUsername = username.slice(0, 12)+'...';
+        newUsername = username.slice(0, 12) + '...';
     }
     text.textContent = newUsername;
     text.classList.add('blockly-name-tag');
-    var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect.setAttribute('width', '12rem');
     rect.setAttribute('height', '2rem');
     rect.setAttribute('rx', '.5rem');
@@ -2125,7 +2063,7 @@ function createTagElement(username,color) {
 }
 
 function setTag(tag, state) {
-    if(state) {
+    if (state) {
         tag.classList.remove('turnOff');
         tag.classList.add('turnOn');
     } else {
@@ -2133,40 +2071,40 @@ function setTag(tag, state) {
         tag.classList.add('turnOff');
     }
 }
-function setOutline(blocks,state){
-    if(state) {
+function setOutline(blocks, state) {
+    if (state) {
         blocks.classList.remove('turnOff');
         blocks.classList.remove('turnedOff');
-        blocks.classList.add('blocRect','turnOn');
+        blocks.classList.add('blocRect', 'turnOn');
     } else {
         blocks.classList.remove('turnOn');
         blocks.classList.remove('turnedOn');
-        blocks.classList.add('blocRect','turnOff');
+        blocks.classList.add('blocRect', 'turnOff');
     }
-    let animation = blocks.getAnimations().find(anim=>anim.animationName?.includes('outline'));
-    animation.addEventListener('finish',()=>{
-        if(state) {
+    const animation = blocks.getAnimations().find(anim => anim.animationName?.includes('outline'));
+    animation.addEventListener('finish', () => {
+        if (state) {
             blocks.classList.remove('turnOn');
             blocks.classList.add('turnedOn');
         } else {
             blocks.classList.remove('turnOff');
             blocks.classList.add('turnedOff');
-        } 
+        }
     });
 }
 
-function selectBlock(blocks,username,state,color) {
+function selectBlock(blocks, username, state, color) {
     blocks.style.outlineColor = color;
     let tag = blocks.querySelector('g' + '.tag');
     // let tag = blocks.querySelector(username + '.tag')
-    if(!tag) {
-        tag = createTagElement(username,color);
+    if (!tag) {
+        tag = createTagElement(username, color);
         blocks.appendChild(tag[1]);
         blocks.appendChild(tag[0]);
     }
-    setOutline(blocks,state,color);
-    setTag(tag[1],state,color);
-    setTag(tag[0],state,color);
+    setOutline(blocks, state, color);
+    setTag(tag[1], state, color);
+    setTag(tag[0], state, color);
 }
 
 
@@ -2175,47 +2113,47 @@ BL_BlockTimeouts = {}; // {blockid:timeoutid}
 BL_BlockOutlinesBlocks = {}; // {blockid:def}
 
 function resetBlock(outlineObj, username) {
-    let block = Blockly.getMainWorkspace().getBlockById(outlineObj.blockId) 
-        ?? Blockly.getMainWorkspace().getCommentById(outlineObj.blockId); 
-    if(!block) {return;}
-    let element = block.getSvgRoot();
+    const block = Blockly.getMainWorkspace().getBlockById(outlineObj.blockId)
+        ?? Blockly.getMainWorkspace().getCommentById(outlineObj.blockId);
+    if (!block) { return; }
+    const element = block.getSvgRoot();
     element.style.transition = 'all 0.5s';
-    selectBlock(element, username,false);
+    selectBlock(element, username, false);
 }
-function setBlockStyles(blockId,blockElem,newStyles, username) {
-    let styles = {};
+function setBlockStyles(blockId, blockElem, newStyles, username) {
+    const styles = {};
     blockElem.style.transition = 'transform 0.5s';
-    selectBlock(blockElem, username,true,'#58c198');
-    return {blockId,styles};
+    selectBlock(blockElem, username, true, '#58c198');
+    return { blockId, styles };
 }
 
 
 
 function outlineBlock(blockId, username) {
-    if(blockId in BL_BlockOutlinesBlocks) {
+    if (blockId in BL_BlockOutlinesBlocks) {
         resetBlock(BL_BlockOutlinesBlocks[blockId], username);
         delete BL_BlockOutlinesBlocks[blockId];
         clearTimeout(BL_BlockTimeouts[blockId]);
         delete BL_BlockTimeouts[blockId];
     }
-    if(username in BL_BlockOutlinesUsers) {
+    if (username in BL_BlockOutlinesUsers) {
         resetBlock(BL_BlockOutlinesUsers[username], username);
         delete BL_BlockOutlinesUsers[username];
-    } 
-    let workspace = Blockly.getMainWorkspace();
-    if(!workspace) {return;}
-    let block = workspace.getBlockById(blockId) ?? workspace.getCommentById(blockId); 
-    if(!block) {return;}
+    }
+    const workspace = Blockly.getMainWorkspace();
+    if (!workspace) { return; }
+    const block = workspace.getBlockById(blockId) ?? workspace.getCommentById(blockId);
+    if (!block) { return; }
 
-    let blockElem = block.getSvgRoot();
+    const blockElem = block.getSvgRoot();
 
-    const blockResetDef = setBlockStyles(blockId,blockElem,
-        {'outline':'solid 8px #ffc83d'}, username,
+    const blockResetDef = setBlockStyles(blockId, blockElem,
+        { 'outline': 'solid 8px #ffc83d' }, username,
     );
     BL_BlockOutlinesUsers[username] = blockResetDef;
     BL_BlockOutlinesBlocks[blockId] = blockResetDef;
-    
-    let timeoutId = setTimeout(()=>{resetBlock(blockResetDef, username);},2500); // clear outline in 5 seconds
+
+    const timeoutId = setTimeout(() => { resetBlock(blockResetDef, username); }, 2500); // clear outline in 5 seconds
     BL_BlockTimeouts[blockId] = timeoutId;
 }
 
@@ -2229,8 +2167,7 @@ function outlineBlock(blockId, username) {
 
 
 /////........................ GUI INJECTS .........................//////
-console.log('running gui inject...');
-let shareDropdown = `
+const shareDropdown = `
 <div class="ls-collab-panel" role="dialog" aria-label="CoBlocks collaboration">
     <div class="ls-collab-header">
         <div class="ls-collab-brand"><img src="${logoUrl}" alt=""></div>
@@ -2238,7 +2175,7 @@ let shareDropdown = `
             <strong>Collaboration</strong>
             <span>Manage this CoBlocks project</span>
         </div>
-        <button class="ls-icon-button" type="button" aria-label="Close" onclick="lsDropdown.style.display='none';livescratchButton.setAttribute('aria-expanded','false')">&times;</button>
+        <button class="ls-icon-button" type="button" aria-label="Close" onclick="lsDropdown.style.display='none';coblocksButton.setAttribute('aria-expanded','false')">&times;</button>
     </div>
     <div class="ls-collab-stats" aria-live="polite">
         <span><strong id="lsCollabCount">0</strong> <span id="lsPeopleLabel">people</span></span>
@@ -2270,13 +2207,13 @@ let shareDropdown = `
     </button>
     <div id="lsShareStatus" class="ls-share-status" role="status" aria-live="polite"></div>
     <div class="ls-collab-actions">
-        <button type="button" class="ls-secondary-button" onclick="copyLivescratchLink()">Copy project link</button>
-        <button type="button" class="ls-danger-button" onclick="unshareLivescratch()">Unlink project</button>
+        <button type="button" class="ls-secondary-button" onclick="copyCoBlocksLink()">Copy project link</button>
+        <button type="button" class="ls-danger-button" onclick="unlinkCoBlocks()">Unlink project</button>
     </div>
 </div>
 
 `;
-let shareScript = `{
+const shareScript = `{
 window.lsSearchName = document.querySelector('#resultName');
 window.lsSearchResult = document.querySelector('#resultt');
 window.lsSearchAvatar = document.querySelector('#resultPic');
@@ -2324,7 +2261,7 @@ lsSearchInput.addEventListener('input', () => {
 });
 }
 `;
-let shareCSS = `
+const shareCSS = `
 .ls-collab-panel, .ls-collab-panel * { box-sizing: border-box; }
 .ls-collab-panel {
     width: min(320px, calc(100vw - 24px)); min-width: 0; max-width: 320px; max-height: calc(100vh - 72px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
@@ -2385,7 +2322,7 @@ let shareCSS = `
 .ls-native-backpack.is-drop-target { border-color: #ffc83d; background: #fff9e9; box-shadow: inset 0 0 0 3px rgba(255,200,61,.28); }
 .ls-native-backpack-header { box-sizing: border-box; width: 100%; height: 45px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border: 0; color: #4c4c4c; background: #fff; font: inherit; font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
 .ls-native-backpack-header:hover { background: #f7f9fc; }
-.ls-native-backpack-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: linear-gradient(145deg,#ffc83d,#14264d); color: #fff; font-size: 14px; }
+.ls-native-backpack-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: #fff; font-size: 14px; }
 .ls-native-backpack-title { flex: 1; }
 .ls-native-backpack-count { color: #777; font-size: 11px; font-weight: 500; }
 .ls-native-backpack-chevron { color: #777; font-size: 18px; transform: rotate(-90deg); transition: transform .18s ease; }
@@ -2692,19 +2629,19 @@ async function getWithPic(user, username = null) {
 }
 
 
-async function addCollaboratorGUI (user,omitX){
-    if(!user) {return;}
-    if(user.username.toLowerCase() in lsShareMembers) {return;}
+async function addCollaboratorGUI (user, omitX) {
+    if (!user) { return; }
+    if (user.username.toLowerCase() in lsShareMembers) { return; }
 
-    let newCollab = lsCollaboratorTemplate.cloneNode(-1);
+    const newCollab = lsCollaboratorTemplate.cloneNode(-1);
     newCollab.removeAttribute('id');
     newCollab.hidden = false;
     newCollab.dataset.username = user.username.toLowerCase();
     const name = newCollab.querySelector('.ls-member-name');
     name.innerText = user.username;
     name.onclick = () => window.open(`https://scratch.mit.edu/users/${encodeURIComponent(user.username)}`);
-    let x = newCollab.querySelector('.ls-remove-collaborator');
-    if(omitX === true) {
+    const x = newCollab.querySelector('.ls-remove-collaborator');
+    if (omitX === true) {
         x.remove();
         newCollab.classList.add('is-owner');
         newCollab.querySelector('.ls-member-role').innerText = 'Owner';
@@ -2723,25 +2660,25 @@ async function addCollaboratorGUI (user,omitX){
 }
 
 async function removeCollaboratorGUI (username) {
-    if(!(username.toLowerCase() in lsShareMembers)) {return;}
+    if (!(username.toLowerCase() in lsShareMembers)) { return; }
     lsShareMembers[username.toLowerCase()].remove();
     delete lsShareMembers[username.toLowerCase()];
     updateCollaboratorSummary();
 }
 
 function removeAllCollaboratorsGUI() {
-    Object.values(lsShareMembers).forEach(div=>div.remove());
+    Object.values(lsShareMembers).forEach(div => div.remove());
     lsShareMembers = {};
     updateCollaboratorSummary();
 }
 
 async function addCollaborator(username) {
     if (!username) return;
-    if(username.toLowerCase() in lsShareMembers) {return;}
-    let user = await getUserInfo(username);
-    if(!user) { setShareStatus('No Scratch user found.', 'error'); return; }
+    if (username.toLowerCase() in lsShareMembers) { return; }
+    const user = await getUserInfo(username);
+    if (!user) { setShareStatus('No Scratch user found.', 'error'); return; }
     setShareStatus(`Adding @${user.username}...`);
-    chrome.runtime.sendMessage(exId,{meta:'shareWith','username':user.username,id:lsId,pk:user.pk}, function (response) {
+    chrome.runtime.sendMessage(exId, { meta: 'shareWith', 'username': user.username, id: lsId, pk: user.pk }, function (response) {
         if (response?.ok) {
             addCollaboratorGUI(user);
             setShareStatus(`@${user.username} can now collaborate.`, 'success');
@@ -2755,7 +2692,7 @@ async function addCollaborator(username) {
 function removeCollaborator(user) {
     if (!confirm(`Remove @${user} from this project?`)) return;
     setShareStatus(`Removing @${user}...`);
-    chrome.runtime.sendMessage(exId,{meta:'unshareWith',user,id:lsId}, response => {
+    chrome.runtime.sendMessage(exId, { meta: 'unshareWith', user, id: lsId }, response => {
         if (response?.ok) {
             removeCollaboratorGUI(user);
             setShareStatus(`@${user} was removed.`, 'success');
@@ -2949,7 +2886,7 @@ async function refreshSharedBackpack(showStatus = false) {
 async function saveBlocksToBackpack(blocks, topBlockId) {
     try {
         if (!lsId || !Array.isArray(blocks) || !blocks.length) return;
-        const ordered = blocks.map(block => ({...block}));
+        const ordered = blocks.map(block => ({ ...block }));
         const topIndex = ordered.findIndex(block => block.id === topBlockId);
         if (topIndex > 0) ordered.unshift(ordered.splice(topIndex, 1)[0]);
         const name = backpackScriptName(ordered, topBlockId);
@@ -3136,12 +3073,12 @@ function updateCollaboratorSummary(onlineUsers = null) {
 
 function refreshCollaborationPresence() {
     if (!lsId) return;
-    chrome.runtime.sendMessage(exId, {meta:'getActive', id:lsId}, response => {
+    chrome.runtime.sendMessage(exId, { meta: 'getActive', id: lsId }, response => {
         if (Array.isArray(response)) updateCollaboratorSummary(response);
     });
 }
 
-async function copyLivescratchLink() {
+async function copyCoBlocksLink() {
     try {
         await navigator.clipboard.writeText(location.href);
         setShareStatus('Project link copied.', 'success');
@@ -3151,37 +3088,44 @@ async function copyLivescratchLink() {
 }
 
 function refreshShareModal(showStatus = false) {
-    if(!lsId) {return;}
+    if (!lsId) { return; }
     if (showStatus) setShareStatus('Refreshing...');
-    return new Promise(promRes=>{chrome.runtime.sendMessage(exId,{meta:'getShared',id:lsId},async (res)=>{
-        if (!Array.isArray(res)) {
-            setShareStatus(res?.error || res?.err || 'Could not load collaborators.', 'error');
+    return new Promise(promRes => {
+        chrome.runtime.sendMessage(exId, { meta: 'getShared', id: lsId }, async (res) => {
+            if (!Array.isArray(res)) {
+                setShareStatus(res?.error || res?.err || 'Could not load collaborators.', 'error');
+                promRes();
+                return;
+            }
+            removeAllCollaboratorsGUI();
+            for (const collaborator of res) {
+                if (!collaborator.pk) collaborator.pk = (await getUserInfo(collaborator.username))?.pk;
+            }
+            const collaborators = await Promise.all(res.map(user => getWithPic(user)));
+            const owner = collaborators.shift();
+            if (owner) {
+                lsBackpackOwner = owner.username.toLowerCase();
+                await addCollaboratorGUI(owner, true);
+                renderSharedBackpack();
+            }
+            for (const collaborator of collaborators) await addCollaboratorGUI(collaborator);
+            refreshCollaborationPresence();
+            if (showStatus) setShareStatus('Collaborators updated.', 'success');
             promRes();
-            return;
-        }
-        removeAllCollaboratorsGUI();
-        for (const collaborator of res) {
-            if (!collaborator.pk) collaborator.pk = (await getUserInfo(collaborator.username))?.pk;
-        }
-        const collaborators = await Promise.all(res.map(user => getWithPic(user)));
-        const owner = collaborators.shift();
-        if (owner) {
-            lsBackpackOwner = owner.username.toLowerCase();
-            await addCollaboratorGUI(owner,true);
-            renderSharedBackpack();
-        }
-        for (const collaborator of collaborators) await addCollaboratorGUI(collaborator);
-        refreshCollaborationPresence();
-        if (showStatus) setShareStatus('Collaborators updated.', 'success');
-        promRes();
-    });});
+        });
+    });
 }
 
-function makeLivescratchButton(sharebutton) {
+function copyMatchingClasses(element, classFragments) {
+    return Array.from(element.classList)
+        .filter(className => classFragments.some(fragment => className.includes(fragment)))
+        .join(' ');
+}
 
-    let button = document.createElement('livescratch-init');
+function createCoBlocksButton(shareButton) {
+    const button = document.createElement('livescratch-init');
     button.id = 'lsShare';
-    button.className = Array.from(sharebutton.classList).filter(e=>e.includes('button_outlined-button')||e.includes('menu-bar_menu-bar-button')).join(' ');
+    button.className = copyMatchingClasses(shareButton, ['button_outlined-button', 'menu-bar_menu-bar-button']);
     button.style.marginRight = '10px';
     button.style.paddingLeft = '10px';
     button.style.paddingRight = '10px';
@@ -3203,16 +3147,16 @@ function makeLivescratchButton(sharebutton) {
         }
     };
 
-    let icon = document.createElement('span');
+    const icon = document.createElement('span');
     icon.className = 'ls-share-button-icon';
     icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9" r="2.5"></circle><path d="M3.5 19c.5-3.2 2.4-5 5.5-5s5 1.8 5.5 5M14 14.5c3.5-.5 5.6 1 6 4.5"></path></svg>';
 
-    let text = document.createElement('text');
+    const text = document.createElement('span');
     text.style.textAlign = 'center';
     text.style.fontWeight = '700';
-    text.innerHTML = 'CoBlocks';
+    text.textContent = 'CoBlocks';
 
-    let loader = document.createElement('loader');
+    const loader = document.createElement('loader');
     loader.className = 'livescratchloader';
     loader.style.display = 'none';
     button.appendChild(icon);
@@ -3220,21 +3164,20 @@ function makeLivescratchButton(sharebutton) {
     button.appendChild(text);
     return button;
 }
-function makeRevertButton(communityButton) {
-    let button = document.createElement('livescratch-init');
-    button.id='lsRevert';
-    button.className = Array.from(communityButton.classList).filter(e=>['button_outlined-button','menu-bar_menu-bar-button','share-button_share-button'].find(n=>e.includes(n))).join(' ');
-    
-    // ;'button_outlined-button_1bS__ menu-bar_menu-bar-button_3IDN0 community-button_community-button_2Lo_g'
-    
-    
+
+function createRevertButton(shareButton) {
+    const button = document.createElement('livescratch-init');
+    button.id = 'lsRevert';
+    button.className = copyMatchingClasses(shareButton, [
+        'button_outlined-button',
+        'menu-bar_menu-bar-button',
+        'share-button_share-button',
+    ]);
     button.style.marginRight = '7px';
     button.style.marginLeft = '0px';
     button.style.paddingLeft = '7px';
     button.style.paddingRight = '7px';
     button.style.gap = '7px';
-    // button.style.background = ' linear-gradient(90deg, rgba(51,0,54,1) 0%, rgba(255,0,113,1) 60%)'
-    // button.style.background = '#ffc83d' // livescratch green
     button.style.display = 'flex';
     button.style.flexDirection = 'row';
     button.style.alignItems = 'center';
@@ -3247,51 +3190,48 @@ function makeRevertButton(communityButton) {
     button.setAttribute('aria-label', 'Revert recent CoBlocks edits');
     button.title = 'Revert recent CoBlocks edits';
 
-    let text = document.createElement('text');
+    const text = document.createElement('span');
     text.style.textAlign = 'center';
-    text.innerHTML = 'CoBlocks Revert';
+    text.textContent = 'CoBlocks Revert';
 
     button.appendChild(text);
     return button;
 }
 
-let yeet = '⚠️';
 
-
-function injectJSandCSS() {
+function injectCoBlocksAssets() {
     if (!document.querySelector('#lsShareInjectedScript')) {
-        let dropdownScriptElem = document.createElement('script');
+        const dropdownScriptElem = document.createElement('script');
         dropdownScriptElem.id = 'lsShareInjectedScript';
-        dropdownScriptElem.innerHTML = shareScript;
+        dropdownScriptElem.textContent = shareScript;
         document.head.appendChild(dropdownScriptElem);
     }
-    injectLivescratchStyles();
+    injectCoBlocksStyles();
 }
 
-function injectLivescratchStyles() {
+function injectCoBlocksStyles() {
     if (!document.querySelector('#lsShareInjectedStyles')) {
-        let styleInj = document.createElement('style');
-        styleInj.id = 'lsShareInjectedStyles';
-        styleInj.innerHTML = shareCSS;
-        document.head.appendChild(styleInj);
+        const shareStyles = document.createElement('style');
+        shareStyles.id = 'lsShareInjectedStyles';
+        shareStyles.textContent = shareCSS;
+        document.head.appendChild(shareStyles);
     }
     if (!document.querySelector('#lsSpriteInjectedStyles')) {
-        let styleInj2 = document.createElement('style');
-        styleInj2.id = 'lsSpriteInjectedStyles';
-        styleInj2.innerHTML = spriteDisplayCSS;
-        document.head.appendChild(styleInj2);
+        const spriteStyles = document.createElement('style');
+        spriteStyles.id = 'lsSpriteInjectedStyles';
+        spriteStyles.textContent = spriteDisplayCSS;
+        document.head.appendChild(spriteStyles);
     }
 }
 function creditCollabers(usersList) {
-    usersList.map(u=>`@${u}`);
-    let desc = store.getState().preview.projectInfo.description;
-    let prepend = 'Collaborators:';
-    let text = `${prepend} @${usersList.join(', ')}`;
-    if(desc=='') {setCredits(text);}
-    else if(desc.includes(prepend)) {
+    usersList.map(u => `@${u}`);
+    const desc = store.getState().preview.projectInfo.description;
+    const prepend = 'Collaborators:';
+    const text = `${prepend} @${usersList.join(', ')}`;
+    if (desc === '') { setCredits(text); } else if (desc.includes(prepend)) {
         lines = desc.split('\n');
-        lines.splice(lines.indexOf(lines.find(e=>e.includes(prepend))),1,text);
-        let toset = lines.join('\n');
+        lines.splice(lines.indexOf(lines.find(e => e.includes(prepend))), 1, text);
+        const toset = lines.join('\n');
         setCredits(toset);
     }
 }
@@ -3315,73 +3255,73 @@ function setCredits(text) {
     store.getState().preview.projectInfo.description = text;
 }
 function addToCredits(text) {
-    try{
-        let oldDesc = store.getState().preview.projectInfo.description;
-        if(oldDesc.includes(text)) {return;}
-        let newDesc = oldDesc + (oldDesc=='' ? '' : '\n') + text;
+    try {
+        const oldDesc = store.getState().preview.projectInfo.description;
+        if (oldDesc.includes(text)) { return; }
+        const newDesc = oldDesc + (oldDesc === '' ? '' : '\n') + text;
 
         setCredits(newDesc);
-    } catch(e){
+    } catch (e) {
         console.error(e);
     }
 }
 
 function showBlStartError(err) {
-    let rand=`a${Math.random().toString().substring(2)}`;
+    const rand = `a${Math.random().toString().substring(2)}`;
     // stop spinny
     document.querySelector('loader.livescratchloader').style.display = 'none';
 
     document.querySelector('.lsErr')?.remove();
-    document.querySelector('livescratchcontainer > livescratch-init').insertAdjacentHTML('afterend',`<div class="${rand} lsErr" style="background:#ffcdf2; outline:3px solid red; padding:4px; position:absolute; top:50px; border-radius:12px; color:red"></div>`);
-    document.querySelector('.lsErr').innerText=`There was an error:\n ${err}`;
-    setTimeout(()=>{document.querySelector(`.lsErr.${rand}`)?.remove();},5000);
+    document.querySelector('livescratchcontainer > livescratch-init').insertAdjacentHTML('afterend', `<div class="${rand} lsErr" style="background:#ffcdf2; outline:3px solid red; padding:4px; position:absolute; top:50px; border-radius:12px; color:red"></div>`);
+    document.querySelector('.lsErr').innerText = `There was an error:\n ${err}`;
+    setTimeout(() => { document.querySelector(`.lsErr.${rand}`)?.remove(); }, 5000);
 
 }
 
-let lsActivateClick = async ()=>{
+const lsActivateClick = async () => {
 
-    if(livescratchDeleted) {reloadAfterRestart=true;} //todo write code so that it can do this without restarting
-    if(reloadAfterRestart){
-        finishedSavingCB.push(()=>{location.reload();});
+    if (coblocksDisabled) { reloadAfterRestart = true; } //todo write code so that it can do this without restarting
+    if (reloadAfterRestart) {
+        finishedSavingCB.push(() => { location.reload(); });
         //stop spinny
         document.querySelector('loader.livescratchloader').style.display = 'none';
         reloadOnlineUsers();
 
         lsShareClick();
     }
-    
+
     // change onclick
-    livescratchButton.onclick = undefined;
+    coblocksButton.onclick = undefined;
     // set spinny icon
     document.querySelector('loader.livescratchloader').style.display = 'flex';
 
     // save project in scratch
-    store.dispatch({type: 'scratch-gui/project-state/START_MANUAL_UPDATING'});
+    store.dispatch({ type: 'scratch-gui/project-state/START_MANUAL_UPDATING' });
 
-    await waitFor(()=>(!isNaN(parseFloat(location.pathname.split('/')[2]))));
+    await waitFor(() => (!isNaN(parseFloat(location.pathname.split('/')[2]))));
     scratchId = location.pathname.split('/')[2];
 
-    let json = vm.toJSON();
+    const json = vm.toJSON();
 
-    chrome.runtime.sendMessage(exId,{json,meta:'create',scratchId,title:store.getState().preview.projectInfo.title},async (response)=>{
-        if(response.noauth || response.err) {
+    chrome.runtime.sendMessage(exId, { json, meta: 'create', scratchId, title: store.getState().preview.projectInfo.title }, async (response) => {
+        if (response.noauth || response.err) {
             showBlStartError(response.noauth ? 'CoBlocks has not verified your account yet.' : response.err);
-            livescratchButton.onclick = lsActivateClick;
+            coblocksButton.onclick = lsActivateClick;
             return;
         }
-        
-       
+
+
         lsId = response.id;
 
-   
+
 
         // ACTIVATE LSOKLIVE!!!
         projectReplaceInitiated = true;
         pauseEventHandling = false;
-        liveMessage({meta:'myId',id:lsId});
-        activateLivescratch();
-        // JOIN LIVESCRATCH SESSION!!!!
-        liveMessage({meta:'joinSession'});
+        liveMessage({ meta: 'myId', id: lsId });
+        activateCoBlocks();
+        // Join the CoBlocks session after the editor is ready.
+        liveMessage({ meta: 'joinSession' });
         readyToRecieveChanges = true;
         await refreshShareModal();
 
@@ -3393,42 +3333,39 @@ let lsActivateClick = async ()=>{
         document.querySelector('loader.livescratchloader').style.display = 'none';
 
         // Set button onclick
-        livescratchButton.onclick = lsShareClick;
+        coblocksButton.onclick = lsShareClick;
         reloadOnlineUsers();
 
         lsShareClick();
 
     });
 };
-let lsShareClick = ()=>{
+const lsShareClick = () => {
     const opening = lsDropdown.style.display === 'none';
     lsDropdown.style.display = opening ? 'flex' : 'none';
-    livescratchButton.setAttribute('aria-expanded', String(opening));
+    coblocksButton.setAttribute('aria-expanded', String(opening));
     if (opening) refreshShareModal();
 };
 
-console.log('listening for share button');
-livescratchButton = null;
+coblocksButton = null;
 lsDropdown = null;
 
 function doIOwnThis() {
-    return store.getState().session.session.user.id == store.getState().preview.projectInfo.author.id;
+    return store.getState().session.session.user.id === store.getState().preview.projectInfo.author.id;
 }
 function addButtonInjectors() {
     listenForObj('button[class*="share-button_share-button"]',
-        (shareButton)=>{
-            if(document.querySelector('livescratch-init')!==null) {return;}
-            // bc.children[1].children[0].innerHTML = "Become Blajingus"
+        shareButton => {
+            if (document.querySelector('livescratch-init') || !doIOwnThis()) return;
 
-            let container = document.createElement('livescratchContainer');
+            const container = document.createElement('livescratchContainer');
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.position = 'relative';
 
-            if(!doIOwnThis()) {return;} // if 
-            let button = makeLivescratchButton(shareButton);
-            livescratchButton = button;
-            let dropdown = document.createElement('livescratchDropdown');
+            const button = createCoBlocksButton(shareButton);
+            coblocksButton = button;
+            const dropdown = document.createElement('livescratchDropdown');
             dropdown.innerHTML = shareDropdown;
             dropdown.style.position = 'absolute';
             dropdown.style.top = '44px';
@@ -3437,17 +3374,12 @@ function addButtonInjectors() {
             dropdown.style.display = 'none';
             lsDropdown = dropdown;
 
-            button.onclick = ()=>{
-                if(lsId) {
-                // if already is shared
-                    return lsShareClick();
-                } else {
-                // if is regular scratch project
-                    return lsActivateClick();
-                }
+            button.onclick = () => {
+                if (lsId) lsShareClick();
+                else lsActivateClick();
             };
-            document.addEventListener('click', (e)=>{
-                if(!dropdown.contains(e.target) && !button.contains(e.target)) {
+            document.addEventListener('click', event => {
+                if (!dropdown.contains(event.target) && !button.contains(event.target)) {
                     dropdown.style.display = 'none';
                     button.setAttribute('aria-expanded', 'false');
                 }
@@ -3455,82 +3387,49 @@ function addButtonInjectors() {
 
             container.appendChild(button);
             container.appendChild(dropdown);
-            shareButton.parentNode.insertBefore(container,shareButton);
+            shareButton.parentNode.insertBefore(container, shareButton);
 
-            injectJSandCSS();
-
+            injectCoBlocksAssets();
             refreshShareModal();
-
             addRevertButton();
-
         },
     );
 
-    //// Inject active users display
-    listenForObj('[class*="menu-bar_account-info-group"]',(accountInfo)=>{
-        if(document.querySelector('livescratch-init')!==null) {return;}
-        let topBar = accountInfo.parentElement;
+    // Inject active users display
+    listenForObj('[class*="menu-bar_account-info-group"]', accountInfo => {
+        if (document.querySelector('livescratch-init')) return;
+        const topBar = accountInfo.parentElement;
 
-        // add panel
-        let panel = document.createElement('div');
+        const panel = document.createElement('div');
         panel.id = 'lsUsersPanel';
-        panel.style = 'display: flex; jusify-content:center; align-items: center; gap: 3px; max-width: 300px; overflow: auto;';
-        topBar.insertBefore(panel,accountInfo);
-        // add chat
+        panel.style = 'display: flex; justify-content: center; align-items: center; gap: 3px; max-width: 300px; overflow: auto;';
+        topBar.insertBefore(panel, accountInfo);
         addChatButton();
 
-        let activeText = document.createElement('div');
-        activeText.innerHTML = 'online:';
+        const activeText = document.createElement('div');
+        activeText.textContent = 'online:';
         activeText.style.color = '#104691';
         activeText.style.background = 'lightblue';
         activeText.style.padding = '2px';
-        activeText.style.borderRadius= '3px';
-        activeText.style.alignSelf= 'center';
-
+        activeText.style.borderRadius = '3px';
+        activeText.style.alignSelf = 'center';
         activeText.style.marginRight = '10px';
         panel.appendChild(activeText);
 
         setTopbarButtonVisibility();
-
-
-
         showCachedOnlineUsers();
-
     });
 }
 
 
 function addRevertButton() {
     const shareButton = document.querySelector('button[class*="share-button_share-button"]');
-    const coblocksContainer = livescratchButton?.parentElement;
+    const coblocksContainer = coblocksButton?.parentElement;
 
-    if(!lsId || !shareButton || !coblocksContainer || document.querySelector('#lsRevert')) {return;}
+    if (!lsId || !shareButton || !coblocksContainer || document.querySelector('#lsRevert')) return;
 
-    // let container = document.createElement('revertContainer')
-    // container.style.display = 'flex'
-    // container.style.flexDirection = 'column'
-
-    // if(!doIOwnThis()) {return} // if 
-    let button = makeRevertButton(shareButton);
-    // let dropdown = document.createElement('livescratchDropdown')
-    // dropdown.innerHTML = shareDropdown
-    // dropdown.style.position = 'absolute'
-    // dropdown.style.top = '40px'
-    // dropdown.style.borderRadius = '17px'
-    // dropdown.style.boxShadow = '3px 7px 19px 3px rgba(0,0,0,0.48)'
-    // dropdown.style.display = 'none'
-    // lsDropdown = dropdown
-
-    button.onclick = ()=>{
-        revertProject();
-        // if(lsId) {
-        //     // if already is shared
-        //     return lsShareClick()
-        // } else {
-        //     // if is regular scratch project
-        //     return lsActivateClick()
-        // }
-    };
+    const button = createRevertButton(shareButton);
+    button.onclick = revertProject;
     button.onkeydown = event => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -3538,39 +3437,35 @@ function addRevertButton() {
         }
     };
 
-    // container.appendChild(button)
-    // mystuff.after(button)
     coblocksContainer.insertAdjacentElement('afterend', button);
 
-    // delete tutorials text
-    Array.from(document.querySelectorAll('span')).find(e=>e.className.includes('menu-bar_tutorials-label'))?.remove();
-
+    Array.from(document.querySelectorAll('span')).find(e => e.className.includes('menu-bar_tutorials-label'))?.remove();
 }
 
 
 
 function revertProject() {
-    let conf = window.confirm('CoBlocks Revert:\nThis will delete recent CoBlocks edits and reset the project to the version saved in My Stuff before you opened it.\n\nUse this if CoBlocks damaged the project. You will still need to click Save Now to finalize the revert.\n\nClick OK to revert or Cancel to keep the current version.');
-    if(!conf) {return;}
+    const conf = window.confirm('CoBlocks Revert:\nThis will delete recent CoBlocks edits and reset the project to the version saved in My Stuff before you opened it.\n\nUse this if CoBlocks damaged the project. You will still need to click Save Now to finalize the revert.\n\nClick OK to revert or Cancel to keep the current version.');
+    if (!conf) { return; }
 
     vm.loadProject(revertJSON);
 }
 
-let COLORS = ['teal','#c42b63', '#58c198'];
-let COLORS_BRIGHT = ['#00b9d1','#ff00e6', '#ffc83d'];
-let yo_1 = Math.round(Math.random());
+const COLORS = ['teal', '#c42b63', '#58c198'];
+const COLORS_BRIGHT = ['#00b9d1', '#ff00e6', '#ffc83d'];
+const yo_1 = Math.round(Math.random());
 
 function clearActive() {
-    if(!document.getElementById('lsUsersPanel')) {return;}
+    if (!document.getElementById('lsUsersPanel')) { return; }
     document.getElementById('lsUsersPanel').innerHTML = '';
 
-    let activeText = document.createElement('div');
+    const activeText = document.createElement('div');
     activeText.innerHTML = 'online:';
     activeText.style.color = '#104691';
     activeText.style.background = 'lightblue';
     activeText.style.padding = '2px';
-    activeText.style.borderRadius= '3px';
-    activeText.style.alignSelf= 'center';
+    activeText.style.borderRadius = '3px';
+    activeText.style.alignSelf = 'center';
 
     activeText.style.marginRight = '10px';
     document.getElementById('lsUsersPanel').appendChild(activeText);
@@ -3578,48 +3473,47 @@ function clearActive() {
 
 let bl_dudes = [];
 async function displayActive(users) {
-    if(!users) {return;}
+    if (!users) { return; }
 
-    // console.log('activeusers',users)
-    bl_dudes.forEach(dude=>dude?.remove());
+    bl_dudes.forEach(dude => dude?.remove());
     bl_dudes = [];
-    users?.forEach(user=>{
-        if(user.username != uname) {
-            bl_dudes.push(addDude(user?.cursor?.targetName,user.username));
+    users?.forEach(user => {
+        if (user.username !== uname) {
+            bl_dudes.push(addDude(user?.cursor?.targetName, user.username));
         }
     });
 
-    if(!document.getElementById('lsUsersPanel')) {return;}
+    if (!document.getElementById('lsUsersPanel')) { return; }
     setTopbarButtonVisibility();
 
     let yo = yo_1;
-    let panel = document.getElementById('lsUsersPanel');
-    if(!panel) {return;}
-    for(let i = 0; i<users.length; i++) {
+    const panel = document.getElementById('lsUsersPanel');
+    if (!panel) { return; }
+    for (let i = 0; i < users.length; i++) {
 
-        let container = document.createElement('div');
-        container.onclick = ()=>{
-            let u = users[i];
+        const container = document.createElement('div');
+        container.onclick = () => {
+            const u = users[i];
 
-            let editingTargetId = BL_UTILS.nameToTarget(u.cursor.targetName).id;
-            if(u.cursor.targetName) {
+            const editingTargetId = BL_UTILS.nameToTarget(u.cursor.targetName).id;
+            if (u.cursor.targetName) {
                 vm.setEditingTarget(editingTargetId);
             }
 
-            let workspace = BL_UTILS.getWorkspace();
-            if(!isNaN(u.cursor.editorTab)) {store.getState().scratchGui.editorTab.activeTabIndex = u.cursor.editorTab;}
-            if(u.cursor.scale && u.cursor.scrollX && u.cursor.scrollY) {
-                if(!BL_UTILS.getWorkspace().startDragMetrics) {
+            const workspace = BL_UTILS.getWorkspace();
+            if (!isNaN(u.cursor.editorTab)) { store.getState().scratchGui.editorTab.activeTabIndex = u.cursor.editorTab; }
+            if (u.cursor.scale && u.cursor.scrollX && u.cursor.scrollY) {
+                if (!BL_UTILS.getWorkspace().startDragMetrics) {
                     BL_UTILS.getWorkspace().startDragMetrics = BL_UTILS.getWorkspace().scrollbar.oldHostMetrics_;
                 }
                 workspace.setScale(u.cursor.scale);
-                workspace.scroll(u.cursor.scrollX,u.cursor.scrollY);}
+                workspace.scroll(u.cursor.scrollX, u.cursor.scrollY);
+            }
 
             vm.emitTargetsUpdate();
         };
 
         // setInterval(()=>{
-        // console.log('getBlockDragSurface',Blockly.getMainWorkspace().getBlockDragSurface(),
         //     'isDragging',Blockly.getMainWorkspace().isDragging()
         // )},500)
 
@@ -3628,8 +3522,8 @@ async function displayActive(users) {
         container.style.height = '70%';
 
 
-        let user = document.createElement('img');
-        if(!users[i].pk) {
+        const user = document.createElement('img');
+        if (!users[i].pk) {
             user.src = (await getUserInfo(users[i].username)).pic;
         } else {
             user.src = `https://uploads.scratch.mit.edu/get_image/user/${users[i].pk}_60x60.png`;
@@ -3640,12 +3534,12 @@ async function displayActive(users) {
 
         user.style.objectFit = 'cover';
         yo++;
-        yo = yo%COLORS.length;
+        yo = yo % COLORS.length;
         user.style.outline = '3px solid ' + COLORS[yo];
         // user.style.outline = '3px solid ' + COLORS[Math.floor(Math.random()*COLORS.length)]
         user.className = 'lsActiveUser';
 
-        let tooltip = document.createElement('div');
+        const tooltip = document.createElement('div');
         tooltip.innerText = users[i].username;
         tooltip.style.backgroundColor = COLORS_BRIGHT[yo];
         tooltip.className = 'lsActiveName';
@@ -3655,24 +3549,24 @@ async function displayActive(users) {
     }
 }
 
-lsCursors=null;
+lsCursors = null;
 function reloadOnlineUsers() {
-    chrome.runtime.sendMessage(exId,{meta:'getActive',id:lsId},(res)=>{
+    chrome.runtime.sendMessage(exId, { meta: 'getActive', id: lsId }, (res) => {
         if (Array.isArray(res)) updateCollaboratorSummary(res);
-        if(JSON.stringify(lsCursors)==JSON.stringify(res)) {return;}
+        if (JSON.stringify(lsCursors) === JSON.stringify(res)) { return; }
         lsCursors = res;
         clearActive();
-        try{displayActive(res);}catch(e){console.error(e);}
+        try { displayActive(res); } catch (e) { console.error(e); }
         // moveMyBubble()
     });
 }
 function showCachedOnlineUsers() {
     clearActive();
-    try{displayActive(lsCursors);}catch(e){console.error(e);}
+    try { displayActive(lsCursors); } catch (e) { console.error(e); }
 }
 
-setInterval(reloadOnlineUsers,2500);
-setTimeout(reloadOnlineUsers,500);
+setInterval(reloadOnlineUsers, 2500);
+setTimeout(reloadOnlineUsers, 500);
 
 
 //////////////////// LOADING OVERLAY ////////////////////
@@ -3736,42 +3630,42 @@ livescratch-loading{
 }
 `;
 function finishBLLoadingAnimation() {
-    try{
+    try {
         document.querySelector('livescratch-loading').style.backdropFilter = ' blur(0px)';
         document.querySelector('#ls-load-logo').style.scale = '500%';
         document.querySelector('#ls-load-logo').style.opacity = '0%';
         document.querySelector('.ls-loading-text').style.opacity = '0%';
 
-        setTimeout(()=>{document.querySelector('livescratch-loading').style.display = 'none';},601);
-    } catch (e) {console.error(e);}
+        setTimeout(() => { document.querySelector('livescratch-loading').style.display = 'none'; }, 601);
+    } catch (e) { console.error(e); }
 }
 
 function startBLLoadingAnimation() {
-    try{
+    try {
         document.querySelector('livescratch-loading').style.display = 'block';
         document.querySelector('livescratch-loading').style.backdropFilter = ' blur(12px)';
         document.querySelector('#ls-load-logo').style.scale = '80%';
         document.querySelector('#ls-load-logo').style.opacity = '100%';
         document.querySelector('.ls-loading-text').style.opacity = '100%';
-    } catch (e) {console.error(e);}
+    } catch (e) { console.error(e); }
 }
 
 function injectLoadingOverlay() {
-    try{
-        let styleInj = document.createElement('style');
+    try {
+        const styleInj = document.createElement('style');
         styleInj.innerHTML = overlayCSS;
         document.head.appendChild(styleInj);
 
-        let loadingOverlay = document.createElement('livescratch-loading');
+        const loadingOverlay = document.createElement('livescratch-loading');
         loadingOverlay.innerHTML = overlayHTML;
         document.body.appendChild(loadingOverlay);
 
-    }    catch (e) {console.error(e);}
+    } catch (e) { console.error(e); }
 }
 
 const editorDarkMode = getComputedStyle(document.documentElement).getPropertyValue('--editorDarkMode-page') !== '';
 
-let chatCss = `
+const chatCss = `
 .emojione{
     height: 20px;
     margin-bottom: -3px;
@@ -4072,43 +3966,43 @@ ls-chat.popout { min-width: 300px; min-height: 320px; border-radius: 14px; box-s
 `;
 
 function injectChatCSS() {
-    try{
-        let styleInj = document.createElement('style');
+    try {
+        const styleInj = document.createElement('style');
         styleInj.innerHTML = chatCss;
         document.head.appendChild(styleInj);
-    }    catch (e) {console.error(e);}
+    } catch (e) { console.error(e); }
 }
 
 function injectEmojiOne() {
     try {
-        let linkStylesheet = document.createElement('link');
+        const linkStylesheet = document.createElement('link');
         linkStylesheet.rel = 'stylesheet';
         linkStylesheet.href = 'https://cdnjs.cloudflare.com/ajax/libs/emojione/4.5.0/assets/css/emojione.min.css';
 
-        let script = document.createElement('script');
+        const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/emojione/4.5.0/lib/js/emojione.min.js';
 
         document.head.appendChild(linkStylesheet);
         document.head.appendChild(script);
-    } catch (e) {console.error(e);}
+    } catch (e) { console.error(e); }
 }
 
 function addChat() {
-    try{
+    try {
         injectChatCSS();
         injectEmojiOne();
 
-        let lsChat = document.createElement('ls-chat');
+        const lsChat = document.createElement('ls-chat');
         lsChat.id = 'ls-chat';
         lsChat.innerHTML = ChatHTML;
         // lsChat.style.visibility = 'hidden'
-        let parentContainer = document.body.querySelector('#app').querySelector('.box_box_bP3Aq').querySelector('.gui_flex-wrapper_Zk207');
+        const parentContainer = document.body.querySelector('#app').querySelector('.box_box_bP3Aq').querySelector('.gui_flex-wrapper_Zk207');
         parentContainer.insertBefore(lsChat, parentContainer.childNodes[1]);
 
-        let chatbox = document.querySelector('ls-chat');
+        const chatbox = document.querySelector('ls-chat');
 
-        document.querySelector('ls-chat-input').addEventListener('keydown',(e)=>{
-            if(e.keyCode == 13 && !e.shiftKey) {
+        document.querySelector('ls-chat-input').addEventListener('keydown', (e) => {
+            if (e.keyCode === 13 && !e.shiftKey) {
                 postMessageBubble();
                 e.preventDefault();
             }
@@ -4117,12 +4011,12 @@ function addChat() {
         chatbox.style.display = 'none';
 
         //// get own username, then populate chat history
-        chrome.runtime.sendMessage(exId,{meta:'getUsernamePlus'},(userData)=>{
+        chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
             uname = userData.uname;
-            let lsToken = userData.currentLsToken;
-            fetch(apiUrl + '/chat/' + lsId,{headers:{uname,authorization:lsToken}}).then(async res=>{
-                let chatHistory = await res.json();
-                chatHistory.forEach(msg=>addMessage(msg));
+            const lsToken = userData.currentLsToken;
+            fetch(apiUrl + '/chat/' + lsId, { headers: { uname, authorization: lsToken } }).then(async res => {
+                const chatHistory = await res.json();
+                chatHistory.forEach(msg => addMessage(msg));
             });
         });
         backspaceFix();
@@ -4139,11 +4033,11 @@ function addChat() {
         });
 
         observer.observe(document.querySelector('ls-chat-head'));
-    } catch (e) {console.error(e);}
+    } catch (e) { console.error(e); }
 }
 function addChatButton() {
-    try{
-        let chatElem = document.createElement('div');
+    try {
+        const chatElem = document.createElement('div');
         chatElem.id = 'lsChatButton';
         chatElem.classList.add('ls-chat-toggle-button');
         chatElem.innerHTML = '<span class="ls-chat-toggle" onclick="toggleChat()"><span>💬 CoBlocks Chat</span><span class="chatdot"></span></span>';
@@ -4153,23 +4047,22 @@ function addChatButton() {
 
         setChatUnread(chatUnreadCount);
 
-        if(!lsId) {chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none';}
-        else {chatElem.style.visibility = 'visible'; chatElem.style.display = 'flex';}
+        if (!lsId) { chatElem.style.visibility = 'hidden'; chatElem.style.display = 'none'; } else { chatElem.style.visibility = 'visible'; chatElem.style.display = 'flex'; }
 
-    }catch(e) {console.error(e);}
+    } catch (e) { console.error(e); }
 }
 let chatUnreadCount = 0;
 function incChatUnread() {
-    setChatUnread(chatUnreadCount+1);
+    setChatUnread(chatUnreadCount + 1);
 }
 function setChatUnread(num) {
     chatUnreadCount = num;
-    let chatdot=document.querySelector('.chatdot');
+    const chatdot = document.querySelector('.chatdot');
     chatdot.innerText = num;
-    chatdot.style.visibility = num==0 ? 'hidden' : 'visible';
+    chatdot.style.visibility = num === 0 ? 'hidden' : 'visible';
 }
 
-let ChatHTML = `
+const ChatHTML = `
 <ls-chat-head id="ls-chat-banner">
     <img id="logo" src="${logoUrl}" style="height: 25px; margin-right: 5px;">
     <ls-chat-head-text>CoBlocks Chat</ls-chat-head-text>
@@ -4194,7 +4087,7 @@ let ChatHTML = `
 lastSender = '';
 uname = '';
 let pingUrl;
-chrome.runtime.sendMessage(exId,{meta:'getUrl', for: '/sounds/ping.mp3'}, url=>{
+chrome.runtime.sendMessage(exId, { meta: 'getUrl', for: '/sounds/ping.mp3' }, url => {
     pingUrl = url;
 });
 // credit https://stackoverflow.com/questions/2794137/sanitizing-user-input-before-adding-it-to-the-dom-in-javascript
@@ -4209,33 +4102,33 @@ function sanitize(string) {
         '/': '&#x2F;',
     };
     const reg = /[&<>"'/]/ig;
-    return string.replace(reg, (match)=>(map[match]));
+    return string.replace(reg, (match) => (map[match]));
 }
 
 async function addMessage(msg, notif) {
-    let msgsElem = document.querySelector('ls-chat-msgs');
-    if(msg.sender != lastSender) {
-        let unameElem = document.createElement('ls-msg-sender');
+    const msgsElem = document.querySelector('ls-chat-msgs');
+    if (msg.sender !== lastSender) {
+        const unameElem = document.createElement('ls-msg-sender');
         unameElem.innerHTML = `
         <ls-msg-sender-img></ls-msg-sender-img>
         <ls-msg-sender-name>${sanitize(msg.sender)}</ls-msg-sender-name>`;
         lastSender = msg.sender;
-        if(msg.sender == uname) {unameElem.classList.add('mymsg');}
+        if (msg.sender === uname) { unameElem.classList.add('mymsg'); }
         msgsElem.appendChild(unameElem);
-        
-        {(async()=>{unameElem.querySelector('ls-msg-sender-img').style.backgroundImage = `url(${(await getUserInfo(msg.sender)).pic})`;})();}
-    }
-    let msgElem = document.createElement('ls-msg');
-    msgElem.innerText = msg.text; 
 
-    if(msg.linkify) {
-        var newHTML = msgElem.innerHTML.replace(/(<a href=")?((https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)))(">(.*)<\/a>)?/gi, function () {
+        { (async() => { unameElem.querySelector('ls-msg-sender-img').style.backgroundImage = `url(${(await getUserInfo(msg.sender)).pic})`; })(); }
+    }
+    const msgElem = document.createElement('ls-msg');
+    msgElem.innerText = msg.text;
+
+    if (msg.linkify) {
+        const newHTML = msgElem.innerHTML.replace(/(<a href=")?((https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)))(">(.*)<\/a>)?/gi, function () {
             return '<a target="_blank" href="' + arguments[2] + '">' + (arguments[7] || arguments[2]) + '</a>';
         });
-        msgElem.innerHTML=newHTML;
+        msgElem.innerHTML = newHTML;
     }
 
-    if(msg.sender == uname) {msgElem.classList.add('mymsg');}
+    if (msg.sender === uname) { msgElem.classList.add('mymsg'); }
 
     const emojiWhitelist = [
         ':smiley:', // 😃
@@ -4267,15 +4160,15 @@ async function addMessage(msg, notif) {
         ':coblocks:', // CoBlocks custom emoji
         ':livescratch:', // Legacy alias
     ];
-    
+
     const customEmojis = {
         ':waakul:': 'https://cdn2.scratch.mit.edu/get_image/user/128606483_60x60.png',
         ':coblocks:': logoUrl,
         ':livescratch:': logoUrl,
     };
-    
+
     let content = msgElem.innerHTML;
-    
+
     function convertWhitelistedEmojis(content) {
         let transformedContent = content.replace(/:([a-zA-Z0-9_+-]+):/g, (match) => {
             if (emojiWhitelist.includes(match)) {
@@ -4288,57 +4181,57 @@ async function addMessage(msg, notif) {
             }
             return match; // Return the original text if not whitelisted
         });
-    
+
         // Check if the content consists only of <img> tags and optional spaces
         if (/^(\s*<img [^>]+>\s*)+$/.test(transformedContent)) {
             transformedContent = transformedContent.replace(/style="height:20px;"/g, 'style="height:30px;"');
         }
-    
+
         return transformedContent;
     }
-    
+
     content = convertWhitelistedEmojis(content);
-    
+
     msgElem.innerHTML = content;
-    
-    msgsElem.appendChild(msgElem);    
+
+    msgsElem.appendChild(msgElem);
 
     msgsElem.scrollTop = msgsElem.scrollHeight;
 
 
-    if(notif) {
-        if(!isChatOpen()) {
+    if (notif) {
+        if (!isChatOpen()) {
             incChatUnread();
         }
-        if(!isChatOpen() || !document.hasFocus()) {
-            liveMessage({meta:'chatnotif',project:store.getState().preview.projectInfo.title, sender:msg.sender, text:msg.text, avatar:(await getUserInfo(msg.sender)).pic});
+        if (!isChatOpen() || !document.hasFocus()) {
+            liveMessage({ meta: 'chatnotif', project: store.getState().preview.projectInfo.title, sender: msg.sender, text: msg.text, avatar: (await getUserInfo(msg.sender)).pic });
         }
-        if(await isPingEnabled()) {
+        if (await isPingEnabled()) {
             playSound(pingUrl);
         }
     }
 }
 
-function isPingEnabled(){
-    return new Promise(ret=>
-        chrome.runtime.sendMessage(exId,{meta:'isPingEnabled'},ret),
+function isPingEnabled() {
+    return new Promise(ret =>
+        chrome.runtime.sendMessage(exId, { meta: 'isPingEnabled' }, ret),
     );
 }
 function playSound(url) {
-    var a = new Audio(url);
+    const a = new Audio(url);
     a.play();
 }
 
 function postMessageBubble() {
-    let inputElem = document.querySelector('ls-chat-input');
+    const inputElem = document.querySelector('ls-chat-input');
     let messageText = inputElem.innerText;
     messageText = messageText.trim();
-    if(messageText=='') {return;}
+    if (messageText === '') { return; }
 
-    
-    let messageObj = {sender:uname,text:messageText};
+
+    const messageObj = { sender: uname, text: messageText };
     addMessage(messageObj);
-    liveMessage({meta:'chat',msg:messageObj});
+    liveMessage({ meta: 'chat', msg: messageObj });
 
     inputElem.innerText = '';
 }
@@ -4369,10 +4262,10 @@ function rmChatDrag() {
 }
 
 function chatDrag() {
-    var pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
 
     document.querySelector('ls-chat.popout').querySelector('ls-chat-head').onmousedown = dragMouseDown;
-  
+
     function dragMouseDown(e) {
         e = e || window.event;
         e.preventDefault();
@@ -4383,7 +4276,7 @@ function chatDrag() {
         // call a function whenever the cursor moves:
         document.onmousemove = elementDrag;
     }
-  
+
     function elementDrag(e) {
         e = e || window.event;
         e.preventDefault();
@@ -4393,11 +4286,11 @@ function chatDrag() {
         pos3 = e.clientX;
         pos4 = e.clientY;
         // set the element's new position:
-        let elmnt = document.querySelector('ls-chat.popout');
+        const elmnt = document.querySelector('ls-chat.popout');
         elmnt.style.top = (elmnt.offsetTop - pos2) + 'px';
         elmnt.style.left = (elmnt.offsetLeft - pos1) + 'px';
     }
-  
+
     function closeDragElement() {
         // stop moving when mouse button is released:
         document.onmouseup = null;
@@ -4406,10 +4299,10 @@ function chatDrag() {
 }
 
 function toggleChat(state) {
-    let chatbox = document.querySelector('ls-chat');
-    if(state===undefined) {
-        // chatbox.style.visibility = chatbox.style.visibility=='hidden' ? 'visible' : 'hidden'
-        if (chatbox.style.display == 'flex') {
+    const chatbox = document.querySelector('ls-chat');
+    if (state === undefined) {
+        // chatbox.style.visibility = chatbox.style.visibility==='hidden' ? 'visible' : 'hidden'
+        if (chatbox.style.display === 'flex') {
             chatbox.style.display = 'none';
         } else {
             chatbox.style.display = 'flex';
@@ -4424,7 +4317,7 @@ function toggleChat(state) {
         }
         // chatbox.style.scale = chatbox.style.transformOrigin='center'
     }
-    if(isChatOpen()) {setChatUnread(0);}
+    if (isChatOpen()) { setChatUnread(0); }
     refreshScratchLayout();
 }
 function isChatOpen() {
@@ -4439,7 +4332,6 @@ function refreshScratchLayout() {
             const workspace = typeof BL_UTILS !== 'undefined' ? BL_UTILS.getWorkspace?.() : null;
             if (workspace && typeof Blockly !== 'undefined' && typeof Blockly.svgResize === 'function') Blockly.svgResize(workspace);
         } catch (error) {
-            console.debug('CoBlocks workspace resize deferred:', error);
         }
     };
     requestAnimationFrame(() => {
@@ -4451,29 +4343,29 @@ function refreshScratchLayout() {
 
 
 function getSpriteBoxElem(spriteName) {
-    let elem = Array.from(document.querySelectorAll('[class*=sprite-selector_scroll]')[0].querySelectorAll('div')).find(elem=>elem.innerHTML==spriteName);
+    const elem = Array.from(document.querySelectorAll('[class*=sprite-selector_scroll]')[0].querySelectorAll('div')).find(elem => elem.innerHTML === spriteName);
     return elem?.parentElement?.parentElement;
 }
-function addDude(spritename,dudename) {
+function addDude(spritename, dudename) {
     let spriteBox = getSpriteBoxElem(spritename);
-    if(spritename==BL_UTILS.stageName) {spriteBox = document.querySelector('[class*=stage-selector_stage-selector]');}
-    if(!spriteBox) {return;}
+    if (spritename === BL_UTILS.stageName) { spriteBox = document.querySelector('[class*=stage-selector_stage-selector]'); }
+    if (!spriteBox) { return; }
     let panel = spriteBox?.querySelector('.sdPanel');
-    if(!panel) {
+    if (!panel) {
         // add sd panel
         panel = document.createElement('div');
         panel.classList.add('sdPanel');
         spriteBox.appendChild(panel);
     }
-    let dude = document.createElement('div');
+    const dude = document.createElement('div');
     dude.classList.add('sdCircle');
     panel.appendChild(dude);
-    getUserInfo(dudename).then(info=>dude.style.backgroundImage=`url(${info.pic})`);
+    getUserInfo(dudename).then(info => dude.style.backgroundImage = `url(${info.pic})`);
 
     return dude;
 }
 
-let spriteDisplayCSS = `
+const spriteDisplayCSS = `
 .sdPanel{
     display:flex;
     flex-wrap:wrap;
@@ -4494,20 +4386,20 @@ let spriteDisplayCSS = `
 `;
 
 function moveMyBubble() {
-    try{
-        lsCursors.find(b=>b.username==uname).cursor.targetName=BL_UTILS.targetToName(vm.editingTarget);
+    try {
+        lsCursors.find(b => b.username === uname).cursor.targetName = BL_UTILS.targetToName(vm.editingTarget);
         clearActive();
-        try{displayActive(lsCursors);}catch(e){console.error(e);}
-    }catch(e){console.error(e);}
+        try { displayActive(lsCursors); } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); }
 }
 
 function backspaceFix() {
-    document.querySelector('#ls-chat > ls-chat-send > ls-chat-input').addEventListener('keydown',(e)=>{
+    document.querySelector('#ls-chat > ls-chat-send > ls-chat-input').addEventListener('keydown', (e) => {
         e.stopPropagation();
     });
-    document.addEventListener('mousedown',e=>{
-        if(e.target!=document.querySelector('#ls-chat > ls-chat-send > ls-chat-input') && 
-            document.activeElement==document.querySelector('#ls-chat > ls-chat-send > ls-chat-input')) {
+    document.addEventListener('mousedown', e => {
+        if (e.target !== document.querySelector('#ls-chat > ls-chat-send > ls-chat-input') &&
+            document.activeElement === document.querySelector('#ls-chat > ls-chat-send > ls-chat-input')) {
             document.activeElement.blur();
         }
     });

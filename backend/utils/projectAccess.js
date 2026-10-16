@@ -13,8 +13,8 @@ export function userOwnsProject(project, username) {
     return !!project && normalized(project.owner) === normalized(username);
 }
 
-export function scratchLinkConflicts(existingEntry, livescratchId) {
-    return !!existingEntry?.lsId && String(existingEntry.lsId) !== String(livescratchId);
+export function scratchLinkConflicts(existingEntry, projectId) {
+    return !!existingEntry?.lsId && String(existingEntry.lsId) !== String(projectId);
 }
 
 export function reconcileProjectReferences(username, user, getProject) {

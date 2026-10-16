@@ -1,86 +1,78 @@
 chrome.storage.local.get('theme', (data) => {
     const savedTheme = (data.theme || 'light') + '-mode';
-    document.querySelector('body').classList.replace('light-mode', savedTheme);
+    document.body.classList.replace('light-mode', savedTheme);
 });
 
-var version = chrome.runtime.getManifest().version_name;
-document.querySelector('#version').innerHTML = 'v'+version;
+const defaultApiUrl = 'https://livescratchapi.waakul.com';
+const version = chrome.runtime.getManifest().version_name;
+document.querySelector('#version').textContent = `v${version}`;
 
-const blockingPopups = Array.from(document.querySelectorAll('#not-verified, #error'));
+const contents = document.querySelector('#contents');
+const friendsList = document.querySelector('#friends-list');
+const friends = document.querySelector('#friends');
+const addFriendInput = document.querySelector('#add');
+const projectsButton = document.querySelector('#projects');
+const authDialog = document.querySelector('#not-verified');
+const errorDialog = document.querySelector('#error');
+const serverUrlField = document.querySelector('#server-url');
+const customServerToggle = document.querySelector('#custom-server');
+const dialogs = [authDialog, errorDialog];
 
-function refreshBlockingPopupState() {
-    const activePopup = blockingPopups.find(popup => popup.style.display !== 'none');
-    const contents = document.querySelector('#contents');
-    const friendsList = document.querySelector('#friends-list');
-    const isOpen = Boolean(activePopup);
+function updateDialogState() {
+    const activeDialog = dialogs.find(dialog => !dialog.hidden);
+    const isOpen = Boolean(activeDialog);
 
-    document.body.classList.toggle('popup-modal-open', isOpen);
+    document.body.classList.toggle('dialog-open', isOpen);
     friendsList.inert = isOpen;
-    for (const popup of blockingPopups) {
-        popup.inert = isOpen && popup !== activePopup;
+    for (const dialog of dialogs) {
+        dialog.inert = isOpen && dialog !== activeDialog;
     }
 
-    if (activePopup) {
+    if (activeDialog) {
         contents.scrollTop = 0;
-        const focusTarget = activePopup.querySelector('button, [href], input, [tabindex="0"]') || activePopup;
+        const focusTarget = activeDialog.querySelector('button, [href], input, [tabindex="0"]') || activeDialog;
         requestAnimationFrame(() => focusTarget.focus());
     }
 }
 
-function showBlockingPopup(popupOrSelector) {
-    const popup = typeof popupOrSelector === 'string' ? document.querySelector(popupOrSelector) : popupOrSelector;
-    if (!popup) return;
-    for (const otherPopup of blockingPopups) {
-        if (otherPopup !== popup) otherPopup.style.display = 'none';
+function showDialog(dialog) {
+    for (const otherDialog of dialogs) {
+        otherDialog.hidden = otherDialog !== dialog;
     }
-    popup.style.display = 'flex';
-    refreshBlockingPopupState();
+    updateDialogState();
 }
 
-function hideBlockingPopup(popupOrSelector) {
-    const popup = typeof popupOrSelector === 'string' ? document.querySelector(popupOrSelector) : popupOrSelector;
-    if (!popup) return;
-    popup.style.display = 'none';
-    refreshBlockingPopupState();
+function hideDialog(dialog) {
+    dialog.hidden = true;
+    updateDialogState();
 }
 
-document.getElementById('server-url').defaultValue = 'https://livescratchapi.waakul.com';
+serverUrlField.defaultValue = defaultApiUrl;
 
-{
-    (async () => {
-        const data = await chrome.storage.local.get('custom-server');
-        const value = data['custom-server'];
+(async function loadServerSettings() {
+    const settings = await chrome.storage.local.get(['custom-server', 'server-url']);
+    customServerToggle.checked = Boolean(settings['custom-server']);
+    serverUrlField.disabled = !customServerToggle.checked;
+    serverUrlField.value = settings['server-url'] || defaultApiUrl;
+})();
 
-        document.getElementById('server-url').disabled = !value;
-        document.getElementById('custom-server').checked = !!value;
-    })();
-}
-{
-    (async () => {
-        const data = await chrome.storage.local.get('server-url');
-        const serverUrlValue = data['server-url'];
-
-        document.getElementById('server-url').value = serverUrlValue || 'https://livescratchapi.waakul.com';
-    })();
-}
-
-document.getElementById('switch-theme')?.addEventListener('click', function(){
-    chrome.storage.local.get('theme', (data) => {
-        let theme = data['theme'] || 'light';
-        let newTheme = theme == 'light' ? 'dark' : 'light';
-        chrome.storage.local.set({'theme': newTheme});
-        document.querySelector('body').classList.replace(`${theme}-mode`, `${newTheme}-mode`);
-    });
+document.querySelector('#switch-theme')?.addEventListener('click', async () => {
+    const { theme = 'light' } = await chrome.storage.local.get('theme');
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    await chrome.storage.local.set({ theme: newTheme });
+    document.body.classList.replace(`${theme}-mode`, `${newTheme}-mode`);
 });
 
-let settingsDropdown = false;
-document.getElementById('settings').style.display = settingsDropdown ? 'flex' : 'none';
-const settingsToggle = document.getElementById('settings-dropdown');
+let settingsOpen = false;
+const settings = document.querySelector('#settings');
+const settingsToggle = document.querySelector('#settings-dropdown');
+settings.style.display = 'none';
+
 function toggleSettings() {
-    settingsDropdown = !settingsDropdown;
-    document.getElementById('settings').style.display = settingsDropdown ? 'flex' : 'none';
-    settingsToggle.setAttribute('aria-expanded', String(settingsDropdown));
-    if (settingsDropdown) {
+    settingsOpen = !settingsOpen;
+    settings.style.display = settingsOpen ? 'flex' : 'none';
+    settingsToggle.setAttribute('aria-expanded', String(settingsOpen));
+    if (settingsOpen) {
         requestAnimationFrame(() => settingsToggle.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     }
 }
@@ -92,31 +84,26 @@ settingsToggle?.addEventListener('keydown', event => {
     }
 });
 
-document.querySelector('button#projects')?.addEventListener('click', function () {
-    chrome.tabs.create({
-        url: '/projects/index.html',
-    });
+projectsButton.addEventListener('click', () => {
+    chrome.tabs.create({ url: '/projects/index.html' });
 });
 
-function validateUrl(input) {
-    const value = input.value;
-    const regex = new RegExp('^(https?:\/\/)([a-zA-Z0-9.-]+)(:[0-9]{1,5})/?$');
-    return regex.test(value);
+function isValidServerUrl(value) {
+    return /^(https?:\/\/)([a-zA-Z0-9.-]+)(:[0-9]{1,5})\/?$/.test(value);
 }
 
-document.querySelectorAll('button.credit').forEach(function(credit){
+document.querySelectorAll('button.credit').forEach(credit => {
     credit.onclick = () => {
-        chrome.tabs.create({
-            url: `${credit.id}?ref=livescratch-extension`,
-        });
+        chrome.tabs.create({ url: `${credit.id}?ref=coblocks-extension` });
     };
-});   
+});
 
-chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, function (info) {
+chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, async info => {
     if (!info) return;
+
     let username = info.uname;
     let token = info.currentLsToken;
-    let apiUrl = info.apiUrl;
+    const apiUrl = info.apiUrl;
     const authAccount = document.querySelector('#auth-account');
     const authUsername = document.querySelector('#auth-username');
     const logoutButton = document.querySelector('#logout');
@@ -127,18 +114,17 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
 
     logoutButton?.addEventListener('click', async () => {
         const status = document.querySelector('#logout-status');
-        const authPrompt = document.querySelector('#not-verified');
         logoutButton.disabled = true;
         logoutButton.textContent = 'Logging out...';
         status.textContent = '';
         authAccount.hidden = true;
-        showBlockingPopup(authPrompt);
+        showDialog(authDialog);
         try {
             const result = await chrome.runtime.sendMessage({ meta: 'logoutScratchAuth' });
             if (!result?.success) throw new Error(result?.error || 'Could not log out.');
             location.reload();
         } catch (error) {
-            hideBlockingPopup(authPrompt);
+            hideDialog(authDialog);
             authAccount.hidden = false;
             status.textContent = error.message || 'Could not log out.';
             logoutButton.disabled = false;
@@ -146,8 +132,6 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
         }
     });
 
-    const customServer = document.querySelector('input#custom-server');
-    const serverUrlField = document.getElementById('server-url');
     async function saveServerSetting(enabled, url) {
         await chrome.storage.local.set({ 'custom-server': enabled, 'server-url': url });
         await chrome.storage.local.remove([`lsToken.${username?.toLowerCase()}`, `blToken.${username?.toLowerCase()}`]);
@@ -156,142 +140,136 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, func
     }
     function requestServerPermission(enabled, url) {
         if (!enabled) return void saveServerSetting(false, url);
-        if (!validateUrl({ value: url })) {
+        if (!isValidServerUrl(url)) {
             serverUrlField.setCustomValidity('Enter a valid server URL.');
             serverUrlField.reportValidity();
-            customServer.checked = false;
+            customServerToggle.checked = false;
             return;
         }
         serverUrlField.setCustomValidity('');
         chrome.permissions.request({ origins: [`${new URL(url).origin}/*`] }, granted => {
             if (granted) saveServerSetting(true, url);
-            else customServer.checked = false;
+            else customServerToggle.checked = false;
         });
     }
-    customServer?.addEventListener('change', () => {
-        serverUrlField.disabled = !customServer.checked;
-        requestServerPermission(customServer.checked, serverUrlField.value.trim());
+    customServerToggle.addEventListener('change', () => {
+        serverUrlField.disabled = !customServerToggle.checked;
+        requestServerPermission(customServerToggle.checked, serverUrlField.value.trim());
     });
-    serverUrlField?.addEventListener('change', () => {
-        if (customServer.checked) requestServerPermission(true, serverUrlField.value.trim());
+    serverUrlField.addEventListener('change', () => {
+        if (customServerToggle.checked) requestServerPermission(true, serverUrlField.value.trim());
     });
 
-    function setSignedin(info) {
-
-        if (info.signedin) {
+    function updateSignedInState(account) {
+        if (account.signedin) {
             document.querySelector('#loggedout').style.display = 'none';
-            document.querySelector('#contents').style.display = 'flex';
-            token = info.currentLsToken;
-            username = info.uname;
+            contents.style.display = 'flex';
+            token = account.currentLsToken;
+            username = account.uname;
         } else {
             document.querySelector('#loggedout').style.display = 'flex';
-            document.querySelector('#contents').style.display = 'none';
+            contents.style.display = 'none';
         }
     }
-    setSignedin(info);
+    updateSignedInState(info);
 
-    let alreadyAdded = {};
-
-    // credit https://stackoverflow.com/questions/2794137/sanitizing-user-input-before-adding-it-to-the-dom-in-javascript
-    function sanitize(string) {
-        string = String(string);
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            '\'': '&#x27;',
-            '/': '&#x2F;',
-        };
-        const reg = /[&<>"'/]/ig;
-        return string.replace(reg, (match) => (map[match]));
-    }
+    const addedFriends = new Set();
 
     function addFriendGUI(name) {
-        if (name?.toLowerCase() in alreadyAdded) { return; }
-        alreadyAdded[name.toLowerCase()] = true;
+        const normalizedName = name?.toLowerCase();
+        if (!normalizedName || addedFriends.has(normalizedName)) return;
+        addedFriends.add(normalizedName);
 
-        let item = document.createElement('li');
-        item.username = name;
-        item.innerHTML = `<span class="button">@${sanitize(name)}</span><span class="material-symbols-outlined x button">remove</span>`;
-        item.onclick = (e) => {
-            if (e.target?.classList?.contains('x')) {
-                removeFriend(name); 
-                document.querySelector('#projects').style.opacity = 1;
+        const item = document.createElement('li');
+        item.dataset.username = name;
+
+        const profile = document.createElement('span');
+        profile.className = 'button';
+        profile.textContent = `@${name}`;
+
+        const removeButton = document.createElement('span');
+        removeButton.className = 'material-symbols-outlined x button';
+        removeButton.textContent = 'remove';
+
+        item.append(profile, removeButton);
+        item.onclick = event => {
+            if (event.target?.classList?.contains('x')) {
+                removeFriend(name);
+                projectsButton.style.opacity = 1;
+                return;
             }
-            else { chrome.tabs.create({ url: `https://scratch.mit.edu/users/${name}` }); }
+            chrome.tabs.create({ url: `https://scratch.mit.edu/users/${name}` });
         };
-        item.onmouseenter = (e) => {
-            document.querySelector('#projects').style.opacity = 0.5;
-        };
-        item.onmouseleave = (e) => {
-            document.querySelector('#projects').style.opacity = 1;
-        };
-        document.querySelector('#friends').appendChild(item);
+        item.onmouseenter = () => projectsButton.style.opacity = 0.5;
+        item.onmouseleave = () => projectsButton.style.opacity = 1;
+        friends.appendChild(item);
     }
 
     async function addFriend(name) {
-        if (name.toLowerCase() in alreadyAdded) { return; }
-        if (name.toLowerCase() == username.toLowerCase()) { return; }
-        if (!name.trim()) { return; }
-        if (name.includes(' ')) { return; }
-        document.querySelector('#add').value = '';
-        
-        let response = await fetch(`${apiUrl}/friends/${username}/${name}`, { method: 'POST', headers: { authorization: token } });
-        let statusCode = response.status;
-        if (statusCode===200) {
-            addFriendGUI(name);
+        const trimmedName = name.trim();
+        const normalizedName = trimmedName.toLowerCase();
+        if (!trimmedName || trimmedName.includes(' ') || normalizedName === username.toLowerCase() || addedFriends.has(normalizedName)) return;
+
+        addFriendInput.value = '';
+        const response = await fetch(`${apiUrl}/friends/${username}/${trimmedName}`, {
+            method: 'POST',
+            headers: { authorization: token },
+        });
+        if (response.ok) {
+            addFriendGUI(trimmedName);
         } else {
             alert('That Scratch user has not joined CoBlocks yet!');
         }
     }
 
     function removeFriend(name) {
-        delete alreadyAdded[name.toLowerCase()];
-        for (let child of document.querySelector('#friends').children) {
-            if (child.username == name) { child.remove(); break; }
+        addedFriends.delete(name.toLowerCase());
+        for (const child of friends.children) {
+            if (child.dataset.username === name) {
+                child.remove();
+                break;
+            }
         }
         fetch(`${apiUrl}/friends/${username}/${name}`, { method: 'DELETE', headers: { authorization: token } });
     }
 
-    document.querySelector('#add')?.addEventListener('keyup', function (event) {
-        if (event.keyCode === 13) {
-            addFriend(document.querySelector('#add').value);
-        }
+    addFriendInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter') addFriend(addFriendInput.value);
     });
 
-    document.querySelector('#submit').onclick = () => { addFriend(document.querySelector('#add').value); };
+    document.querySelector('#submit').onclick = () => addFriend(addFriendInput.value);
 
     if (!info.currentLsToken) {
         showNoAuthMessage();
     } else {
-        fetch(`${apiUrl}/friends/${username}`, { headers: { authorization: token } })
-            .then((res) => { document.querySelector('#friends').innerHTML = ''; return res; })
-            .then(res => res.json().then(list => {
-                if (list.noauth) { showNoAuthMessage(); }
-                else { list.forEach(addFriendGUI); }
-            }))
-            .catch((e) => {
-                showBlockingPopup('#error');
-                document.querySelector('#error-content').innerHTML = e.stack.replace(new RegExp(`chrome-extension://${chrome.runtime.id}/`, 'g'), '');
-            });
+        try {
+            const response = await fetch(`${apiUrl}/friends/${username}`, { headers: { authorization: token } });
+            const list = await response.json();
+            friends.replaceChildren();
+            if (list.noauth) showNoAuthMessage();
+            else list.forEach(addFriendGUI);
+        } catch (error) {
+            showDialog(errorDialog);
+            const message = error.stack || error.message || String(error);
+            document.querySelector('#error-content').textContent = message.replace(new RegExp(`chrome-extension://${chrome.runtime.id}/`, 'g'), '');
+        }
     }
 
-    {
-        (async () => {
-            if (token) document.querySelector('#privme').checked = await (await fetch(`${apiUrl}/privateMe/${username}`, { headers: { authorization: token } })).json();
-        })();
+    if (token) {
+        const response = await fetch(`${apiUrl}/privateMe/${username}`, { headers: { authorization: token } });
+        document.querySelector('#privme').checked = await response.json();
     }
 
-    document.querySelector('#privme')?.addEventListener('change', (event) => {
-        let on = event.currentTarget.checked;
-
-        fetch(`${apiUrl}/privateMe/${username}/${on}`, {method:'put', headers: { authorization: token }  });
+    document.querySelector('#privme')?.addEventListener('change', event => {
+        fetch(`${apiUrl}/privateMe/${username}/${event.currentTarget.checked}`, {
+            method: 'PUT',
+            headers: { authorization: token },
+        });
     });
 });
 
 function showNoAuthMessage() {
-    showBlockingPopup('#not-verified');
+    showDialog(authDialog);
 }
 
 document.querySelector('#scratch-auth-login')?.addEventListener('click', async () => {
@@ -310,7 +288,7 @@ document.querySelector('#scratch-auth-login')?.addEventListener('click', async (
 });
 
 document.getElementById('link-github').onclick = () => {
-    chrome.tabs.create({ url: 'https://github.com/Waakul/LiveScratch' });
+    chrome.tabs.create({ url: 'https://github.com/Waakul/CoBlocks' });
 };
 document.getElementById('link-discord').onclick = () => {
     chrome.tabs.create({ url: 'https://discord.gg/mhDzvrX4RD' });
@@ -319,40 +297,36 @@ document.getElementById('link-donate').onclick = () => {
     chrome.tabs.create({ url: 'https://ko-fi.com/waakul' });
 };
 
-(async () => {
-    document.querySelector('#notifs').checked = (await chrome.storage.local.get(['notifs']))?.notifs ?? false;
+const notificationsToggle = document.querySelector('#notifs');
+const pingSoundsToggle = document.querySelector('#ping-sounds');
+const badgesToggle = document.querySelector('#badges');
+
+(async function loadPreferences() {
+    const preferences = await chrome.storage.local.get(['notifs', 'ping', 'badges']);
+    notificationsToggle.checked = preferences.notifs ?? false;
+    pingSoundsToggle.checked = preferences.ping ?? false;
+    badgesToggle.checked = !(preferences.badges ?? false);
 })();
 
-document.querySelector('#notifs')?.addEventListener('change', (event) => {
-    let on = event.currentTarget.checked;
-    chrome.storage.local.set({ notifs: on });
-    // Permissions must be requested from inside a user gesture, like a button's
-    // click handler.
+notificationsToggle.addEventListener('change', event => {
+    const enabled = event.currentTarget.checked;
+    chrome.storage.local.set({ notifs: enabled });
+    if (!enabled) return;
+
     chrome.permissions.request({
         permissions: ['notifications'],
-    }, (granted) => {
-        // The callback argument will be true if the user granted the permissions.
-        console.log(granted);
-        if(!granted) {
+    }, granted => {
+        if (!granted) {
             chrome.storage.local.set({ notifs: false });
-            document.querySelector('#notifs').checked = false;
+            notificationsToggle.checked = false;
         }
     });
 });
 
-(async () => {
-    document.querySelector('#ping-sounds').checked = (await chrome.storage.local.get(['ping']))?.ping ?? false;
-    document.querySelector('#badges').checked = !((await chrome.storage.local.get(['badges']))?.badges ?? false);
-})();
-
-document.querySelector('#ping-sounds')?.addEventListener('change', (event) => {
-    let on = event.currentTarget.checked;
-    chrome.storage.local.set({ ping: on });
-    // Permissions must be requested from inside a user gesture, like a button's
-    // click handler.
+pingSoundsToggle.addEventListener('change', event => {
+    chrome.storage.local.set({ ping: event.currentTarget.checked });
 });
 
-document.querySelector('#badges')?.addEventListener('change', (event) => {
-    let on = event.currentTarget.checked;
-    chrome.storage.local.set({ badges: !on });
+badgesToggle.addEventListener('change', event => {
+    chrome.storage.local.set({ badges: !event.currentTarget.checked });
 });

@@ -358,6 +358,7 @@ section {
   backdrop-filter: blur(49.20000076293945px);
   z-index: 30;
 }
+.popup[hidden] { display: none; }
 
 footer {
   display: flex;
@@ -629,13 +630,13 @@ info { font-size: 12px; line-height: 17px; }
 #settings .flex-horiz { flex-wrap: wrap; }
 #server-url { min-width: 0; height: 34px; padding: 0 9px; }
 #auth-account { margin-top: 2px; border-radius: 10px; }
-.popup { left: 18px; right: 18px; width: auto; padding: 18px; border-radius: 14px; background: var(--Sub); }
-body.popup-modal-open #friends-list {
+.popup { left: 18px; right: 18px; width: auto; padding: 18px; align-items: flex-start; border-radius: 14px; background: var(--Sub); }
+body.dialog-open #friends-list {
   opacity: .55;
   pointer-events: none;
   user-select: none;
 }
-body.popup-modal-open #contents > .popup {
+body.dialog-open #contents > .popup {
   left: 12px;
   right: 12px;
   width: auto;

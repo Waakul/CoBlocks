@@ -40,6 +40,14 @@ Edit `.env` before starting the server. Set `PUBLIC_BASE_URL` to the public orig
 
 Use `npm run stop` to stop the PM2 process and `npm run delete` to remove it.
 
+Run the quality checks before submitting backend or extension changes:
+
+```sh
+cd backend
+npm run lint
+npm test
+```
+
 ### Extension
 
 1. Open your browser's extensions page.
@@ -47,9 +55,21 @@ Use `npm run stop` to stop the PM2 process and `npm run delete` to remove it.
 3. Choose **Load unpacked** and select the `extension` folder.
 4. Open Scratch and use the CoBlocks popup to sign in.
 
+## Project structure
+
+- `backend/index.js` defines the HTTP API and starts the service.
+- `backend/WebSockets.js` handles authenticated real time messages.
+- `backend/utils/` contains persistence, authentication, project access, and session logic.
+- `extension/background.js` owns extension state, API calls, WebSocket connectivity, and local recovery.
+- `extension/popups/` contains the toolbar popup.
+- `extension/projects/` contains the project list page.
+- `extension/scripts/` contains code injected into Scratch pages.
+
+`extension/background/socket.io.js` is a bundled third party client and is excluded from linting. Changes to it should come from rebuilding or updating the dependency rather than manual editing.
+
 ## Contributing
 
-Issues and pull requests are welcome. Keep changes focused, explain the user impact, and include verification steps with your pull request.
+Issues and pull requests are welcome. Keep changes focused, explain the user impact, and include verification steps. New code should pass both `npm run lint` and `npm test`.
 
 ## Credits
 

@@ -1,97 +1,120 @@
-import fsp from 'fs/promises';
 import fs from 'fs';
-import cron from 'node-cron';
+import fsp from 'fs/promises';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
+import cron from 'node-cron';
 
 const recentPath = 'storage/recent.json';
+const retentionMs = 30 * 24 * 60 * 60 * 1000;
 
-//load from file
-let {recent,recentRealtime,recentShared,popup} = fs.existsSync(recentPath) ? JSON.parse(fs.readFileSync(recentPath)) : {recent:{},recentRealtime:{},recentShared:{},popup:[]};
-if(!recent) {recent = {};}
-if(!recentRealtime) {recentRealtime = {};}
-if(!recentShared) {recentShared = {};}
-if(!popup) {popup = [];}
+function loadRecentData() {
+    try {
+        return JSON.parse(fs.readFileSync(recentPath, 'utf8'));
+    } catch (error) {
+        if (error.code !== 'ENOENT') console.error('Could not load recent user data:', error);
+        return {};
+    }
+}
 
-const CRON_EXPRESSION = '0 1 * * *'; // every night at 1am
-cron.schedule(CRON_EXPRESSION, async () => {
-    trimRecent();
-},{
-    scheduled: true,
-    timezone: 'Etc/GMT+3',
-});
+const stored = loadRecentData();
+let recent = stored.recent || {};
+let recentRealtime = stored.recentRealtime || {};
+let recentShared = stored.recentShared || {};
+let popup = Array.isArray(stored.popup) ? stored.popup : [];
 
-setInterval(saveRecent,1000);
+function normalizeUsername(username) {
+    return typeof username === 'string' ? username.toLowerCase() : null;
+}
 
-// save to file
+function countSince(records, days) {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return Object.values(records).filter(timestamp => timestamp > cutoff).length;
+}
+
+function trimRecordMap(records, cutoff) {
+    return Object.fromEntries(
+        Object.entries(records).filter(([, timestamp]) => timestamp >= cutoff),
+    );
+}
+
+function trimRecent() {
+    const cutoff = Date.now() - retentionMs;
+    recent = trimRecordMap(recent, cutoff);
+    recentRealtime = trimRecordMap(recentRealtime, cutoff);
+    recentShared = trimRecordMap(recentShared, cutoff);
+    popup = popup.filter(record => record.t >= cutoff);
+}
+
+let jobsInstalled = false;
+
+export function installRecentDataJobs() {
+    if (jobsInstalled) return;
+    jobsInstalled = true;
+
+    cron.schedule('0 1 * * *', trimRecent, {
+        scheduled: true,
+        timezone: 'Asia/Qatar',
+    });
+
+    const saveInterval = setInterval(() => {
+        saveRecent().catch(error => console.error('Could not save recent user data:', error));
+    }, 30_000);
+    saveInterval.unref();
+}
+
 export async function saveRecent() {
-    const dirPath = path.dirname(recentPath);
-    await fsp.mkdir(dirPath, { recursive: true });
-    
-    await fsp.writeFile(recentPath,JSON.stringify({recent,recentRealtime,recentShared,popup}));
+    await fsp.mkdir(path.dirname(recentPath), { recursive: true });
+    const temporary = `${recentPath}.${randomUUID()}.tmp`;
+    await fsp.writeFile(temporary, JSON.stringify({ recent, recentRealtime, recentShared, popup }));
+    try {
+        await fsp.rename(temporary, recentPath);
+    } catch (error) {
+        await fsp.rm(temporary, { force: true }).catch(() => {});
+        throw error;
+    }
 }
 
 export function recordPopup(username) {
-    username = username?.toLowerCase?.();
-    let toPush = {u:username,t:Date.now()};
-    popup.push(toPush);
+    const normalized = normalizeUsername(username);
+    if (normalized) popup.push({ u: normalized, t: Date.now() });
 }
+
 export function countPopup(days) {
-    let now = Date.now();
-    let millis = days * 1000 * 60 * 60 * 24;
-    let count = popup.filter(record=>record.t>now-millis).length;
-    return count;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return popup.filter(record => record.t > cutoff).length;
 }
+
 export function countUniquePopup(days) {
-    let now = Date.now();
-    let millis = days * 1000 * 60 * 60 * 24;
-    let count = new Set(popup.filter(record=>record.t>now-millis).map(record=>record.u)).size;
-    return count;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return new Set(popup.filter(record => record.t > cutoff).map(record => record.u)).size;
 }
 
-export function addRecent(username,realtime,shared) {
-    username=username?.toLowerCase?.();
-    recent[username] = Date.now();
-    if(realtime) {
-        recentRealtime[username] = Date.now();
-    }
-    if(shared) {
-        recentShared[username] = Date.now();
-    }
-}
+export function addRecent(username, realtime, shared) {
+    const normalized = normalizeUsername(username);
+    if (!normalized) return;
 
-// remove older than 30 days
-function trimRecent() {
-    const DAYS = 30;
-
-    let namesToDelete = Object.entries(recent).filter(entry=>(Date.now()-entry[1]>1000*60*60*24*DAYS)).map(entry=>entry[0]);
-    namesToDelete.forEach(name=>{delete recent[name];});
-    
-    let namesToDeleteRealtime = Object.entries(recentRealtime).filter(entry=>(Date.now()-entry[1]>1000*60*60*24*DAYS)).map(entry=>entry[0]);
-    namesToDeleteRealtime.forEach(name=>{delete recentRealtime[name];});
-
-    let namesToDeleteShared = Object.entries(recentShared).filter(entry=>(Date.now()-entry[1]>1000*60*60*24*DAYS)).map(entry=>entry[0]);
-    namesToDeleteShared.forEach(name=>{delete recentShared[name];});
-
-    popup = popup.filter(entry=>(Date.now()-entry.t)<1000*60*60*24*DAYS);
+    const now = Date.now();
+    recent[normalized] = now;
+    if (realtime) recentRealtime[normalized] = now;
+    if (shared) recentShared[normalized] = now;
 }
 
 export function countRecentShared(days) {
-    const DAYS = days;
-    return Object.entries(recentShared).filter(entry=>(Date.now()-entry[1]<1000*60*60*24*DAYS)).length;
-}
-export function countRecentRealtime(days) {
-    const DAYS = days;
-    return Object.entries(recentRealtime).filter(entry=>(Date.now()-entry[1]<1000*60*60*24*DAYS)).length;
-}
-export function countRecent(days) {
-    const DAYS = days;
-    return Object.entries(recent).filter(entry=>(Date.now()-entry[1]<1000*60*60*24*DAYS)).length;
-}
-export function countRecentBoth(days) {
-    return {
-        all:countRecent(),
-        realtime:countRecentRealtime(),
-        shared:countRecentShared(),
-    };
+    return countSince(recentShared, days);
 }
 
+export function countRecentRealtime(days) {
+    return countSince(recentRealtime, days);
+}
+
+export function countRecent(days) {
+    return countSince(recent, days);
+}
+
+export function countRecentBoth(days) {
+    return {
+        all: countRecent(days),
+        realtime: countRecentRealtime(days),
+        shared: countRecentShared(days),
+    };
+}

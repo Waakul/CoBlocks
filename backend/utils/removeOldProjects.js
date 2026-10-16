@@ -1,93 +1,59 @@
-/// for some reason this causes a ton of issues :/
-
-import { livescratchPath, scratchprojectsPath } from './fileStorage.js';
 import fsp from 'node:fs/promises';
 import cron from 'node-cron';
 
-function sleep(millis) {
-    return new Promise(res => setTimeout(res, millis));
-}
+import { projectStoragePath } from './fileStorage.js';
 
-let inprog=false;
+const MAX_INACTIVE_DAYS = 60;
+const MAX_INACTIVE_MS = MAX_INACTIVE_DAYS * 24 * 60 * 60 * 1000;
+const CLEANUP_SCHEDULE = '0 2 * * *';
+
 export function installCleaningJob(sessionManager, userManager) {
-    // removeOldProjectsAsync(sessionManager, userManager);
-    // removeUntetheredScratchprojects(sessionManager,userManager)
-    cron.schedule(CRON_EXPRESSION, async () => {
-        if(inprog) {return;} // dont do it twice
-        inprog=true;
+    let running = false;
+
+    cron.schedule(CLEANUP_SCHEDULE, async () => {
+        if (running) return;
+        running = true;
         try {
-            await removeOldProjectsAsync(sessionManager, userManager);
-            await removeUntetheredScratchprojects(sessionManager,userManager);
-        } catch (error) { console.error('Project cleanup failed:', error); }
-        finally { inprog=false; }
-    },{
+            await removeOldProjects(sessionManager, userManager);
+        } catch (error) {
+            console.error('Project cleanup failed:', error);
+        } finally {
+            running = false;
+        }
+    }, {
         scheduled: true,
         timezone: 'Asia/Qatar',
     });
 }
 
-const HOW_OLD_DAYS = 60; // delete projects with no new edits in the last this number of days
-const CRON_EXPRESSION = '0 2 * * *'; // every night at 2am
+async function removeOldProjects(sessionManager, userManager) {
+    const projectIds = (await fsp.readdir(projectStoragePath)).filter(name => /^\d+$/.test(name));
 
-async function removeOldProjectsAsync(sessionManager, userManager) {
-    const files = (await fsp.readdir(livescratchPath)).filter(name => /^\d+$/.test(name));
-    console.log('removal test started', files);
-    for (let id of files) {
-        await sleep(55); // rate limit might fix issues??????? IM LOSSTTTTTTTT!!!
+    for (const projectId of projectIds) {
         try {
-
-            console.log('probing project with id ' + id);
-            let project = sessionManager.getProject(id);
+            const project = sessionManager.getProject(projectId);
             if (!project) {
-                console.log('project doesnt exist, DELETING id ' + id);
-                // A read error is not proof that the project should be deleted.
-            } //todo check if project not existing messes up delete function
-            else { // if project does exist
-                id = project.id; // since we know that project.id exists
-
-                if (Object.keys(project.session.connectedClients).length == 0) {
-                    if (project.project.lastTime && Date.now() - new Date(project.project.lastTime) > HOW_OLD_DAYS * 24 * 60 * 60 * 1000) {
-
-                        console.log(`deleting project ${id} because it is old`);
-
-                        [project.owner, ...project.sharedWith].forEach(username => {
-                            userManager.unShare(username, id);
-                            sessionManager.unshareProject(id, username);
-                        });
-
-                        sessionManager.deleteProjectFile(id);
-                    } else {
-                        project.trimChanges();
-                        await sessionManager.offloadProjectAsync(id);
-                    }
-                }
+                console.warn(`Unreadable project retained during cleanup: ${projectId}`);
+                continue;
             }
-        }
-        catch (e) {
-            console.error(`error while probing project ${id}:`, e);
-        }
-    }
-}
+            if (Object.keys(project.session.connectedClients).length > 0) continue;
 
+            const lastActivity = new Date(project.project.lastTime).getTime();
+            const expired = Number.isFinite(lastActivity) && Date.now() - lastActivity > MAX_INACTIVE_MS;
+            if (!expired) {
+                project.trimChanges();
+                await sessionManager.offloadProjectAsync(project.id);
+                continue;
+            }
 
-async function removeUntetheredScratchprojects(sessionManager, userManager) {
-
-    const files = await fsp.readdir(scratchprojectsPath);
-    console.log('removal scratchprojectsentries test started', files);
-    for (let scratchid of files) {
-
-        await sleep(60);
-        let entry = sessionManager.getScratchProjectEntry(scratchid);
-        if(!entry) {
-            console.warn(`Unreadable Scratch project link retained: ${scratchid}`);
-            continue;
-        }
-        let id = entry.lsId;
-        let project = sessionManager.getProject(id);
-        if (!project) {
-            console.warn(`Missing project for Scratch link retained: ${scratchid}`);
-            continue;
+            console.log(`Deleting inactive project ${project.id}.`);
+            for (const username of [project.owner, ...project.sharedWith]) {
+                userManager.unShare(username, project.id);
+                userManager.persistUser(username);
+            }
+            sessionManager.deleteProjectFile(project.id);
+        } catch (error) {
+            console.error(`Could not clean project ${projectId}:`, error);
         }
     }
-    return;
 }

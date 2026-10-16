@@ -5,6 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "lint": "cd .. && backend/node_modules/.bin/eslint backend extension",
     "test": "node --test",
     "start": "pm2 start ./ecosystem.config.cjs",
     "stop": "pm2 stop CoBlocks",
@@ -19,21 +20,15 @@
   "license": "ISC",
   "dependencies": {
     "@coffeeandfun/google-profanity-words": "^2.1.0",
-    "@types/express": "^5.0.0",
-    "body-parser": "^1.20.4",
-    "clone": "^2.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.22.1",
     "express-basic-auth": "^1.2.1",
-    "http": "^0.0.1-security",
-    "n-readlines": "^1.0.1",
     "node-cron": "^4.2.1",
     "node-fetch": "^3.2.10",
     "pm2": "^7.0.4",
     "sanitize-filename": "^1.6.3",
-    "socket.io": "^4.4.1",
-    "socket.io-client": "^4.4.1"
+    "socket.io": "^4.4.1"
   },
   "devDependencies": {
     "eslint": "^9.17.0"
