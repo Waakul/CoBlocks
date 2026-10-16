@@ -2,6 +2,18 @@
 const exId = document.querySelector('.livescratch-ext').dataset.exId;
 let apiUrl = '';
 const logoUrl = document.querySelector('.livescratch-ext-2')?.dataset.logoUrl || '';
+const pendingInviteKey = 'coblocksPendingInvite';
+const initialUrl = new URL(location.href);
+const initialInvite = {
+    projectId: initialUrl.searchParams.get('coblocksProject'),
+    token: initialUrl.searchParams.get('coblocksInvite'),
+};
+if (initialInvite.projectId && initialInvite.token) {
+    sessionStorage.setItem(pendingInviteKey, JSON.stringify(initialInvite));
+    initialUrl.searchParams.delete('coblocksProject');
+    initialUrl.searchParams.delete('coblocksInvite');
+    history.replaceState(null, '', initialUrl);
+}
 chrome.runtime.sendMessage(exId, { meta: 'getAPI-URL' }, function(response) {
     apiUrl = response.apiURL;
 });
@@ -164,6 +176,8 @@ async function startCoBlocks(creatingNew) {
 
 let coblocksDisabled = false;
 async function onTabLoad() {
+    if (await acceptCollaborationInvite()) return;
+
     // Get usable scratch id
     // await waitFor(()=>{!isNaN(parseFloat(location.pathname.split('/')[2]))})
     // scratchId = location.pathname.split('/')[2]
@@ -202,6 +216,32 @@ async function onTabLoad() {
 }
 
 onTabLoad();
+
+async function acceptCollaborationInvite() {
+    let projectId;
+    let token;
+    try {
+        ({ projectId, token } = JSON.parse(sessionStorage.getItem(pendingInviteKey)) || {});
+    } catch {
+        sessionStorage.removeItem(pendingInviteKey);
+    }
+    if (!projectId || !token) return false;
+
+    const response = await new Promise(resolve => {
+        chrome.runtime.sendMessage(exId, { meta: 'acceptInvite', id: projectId, token }, resolve);
+    });
+    if (!response?.ok) {
+        if (response?.status !== 401) sessionStorage.removeItem(pendingInviteKey);
+        alert(`Could not accept this CoBlocks invite.\n\n${response?.error || 'The invite may have expired.'}`);
+        return false;
+    }
+
+    sessionStorage.removeItem(pendingInviteKey);
+    location.href = response.scratchId
+        ? `https://scratch.mit.edu/projects/${response.scratchId}/editor`
+        : 'https://scratch.mit.edu/create';
+    return true;
+}
 
 async function joinExistingCoBlocks(id) {
     projectReplaceInitiated = true;
@@ -2207,7 +2247,8 @@ const shareDropdown = `
     </button>
     <div id="lsShareStatus" class="ls-share-status" role="status" aria-live="polite"></div>
     <div class="ls-collab-actions">
-        <button type="button" class="ls-secondary-button" onclick="copyCoBlocksLink()">Copy project link</button>
+        <button type="button" class="ls-secondary-button" onclick="copyCollaborationInvite()">Copy invite link</button>
+        <button type="button" class="ls-secondary-button" onclick="revokeCollaborationInvite()">Revoke invite</button>
         <button type="button" class="ls-danger-button" onclick="unlinkCoBlocks()">Unlink project</button>
     </div>
 </div>
@@ -2343,6 +2384,7 @@ const shareCSS = `
 .ls-native-backpack-status.is-error { color: #b43b3b; }
 .ls-native-backpack-status.is-success { color: #14264d; }
 .ls-collab-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ls-collab-actions .ls-danger-button { grid-column: 1 / -1; }
 .ls-secondary-button, .ls-danger-button { min-width: 0; min-height: 36px; padding: 7px 10px; border-radius: 9px; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .ls-secondary-button { border: 1px solid #b8c4da; color: #14264d; background: #fff; }
 .ls-secondary-button:hover { background: #eef3fc; }
@@ -2356,6 +2398,7 @@ const shareCSS = `
 @media (max-width: 360px) {
     .ls-collab-panel { padding: 13px; gap: 10px; }
     .ls-collab-actions { grid-template-columns: 1fr; }
+    .ls-collab-actions .ls-danger-button { grid-column: auto; }
     .ls-collab-member { grid-template-columns: 34px minmax(0,1fr) auto; }
     .ls-collab-member .ls-remove-collaborator { grid-column: 3; }
     .ls-member-role { display: none; }
@@ -3078,13 +3121,35 @@ function refreshCollaborationPresence() {
     });
 }
 
-async function copyCoBlocksLink() {
-    try {
-        await navigator.clipboard.writeText(location.href);
-        setShareStatus('Project link copied.', 'success');
-    } catch (error) {
-        setShareStatus('Could not copy the link. Copy it from the address bar.', 'error');
-    }
+async function copyCollaborationInvite() {
+    setShareStatus('Creating invite...');
+    chrome.runtime.sendMessage(exId, { meta: 'createInvite', id: lsId }, async response => {
+        if (!response?.ok) {
+            setShareStatus(response?.error || 'Could not create an invite.', 'error');
+            return;
+        }
+
+        const inviteUrl = new URL('https://scratch.mit.edu/create');
+        inviteUrl.searchParams.set('coblocksProject', response.projectId);
+        inviteUrl.searchParams.set('coblocksInvite', response.token);
+        try {
+            await navigator.clipboard.writeText(inviteUrl.href);
+            setShareStatus('New invite copied. It expires in 7 days and replaces the previous link.', 'success');
+        } catch {
+            setShareStatus('Could not copy the invite link.', 'error');
+        }
+    });
+}
+
+function revokeCollaborationInvite() {
+    if (!confirm('Revoke the current collaboration invite?')) return;
+    setShareStatus('Revoking invite...');
+    chrome.runtime.sendMessage(exId, { meta: 'revokeInvite', id: lsId }, response => {
+        setShareStatus(
+            response?.ok ? 'Invite revoked.' : response?.error || 'Could not revoke the invite.',
+            response?.ok ? 'success' : 'error',
+        );
+    });
 }
 
 function refreshShareModal(showStatus = false) {

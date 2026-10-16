@@ -22,7 +22,7 @@ export function reconcileProjectReferences(username, user, getProject) {
     const sharedTo = user?.sharedTo && typeof user.sharedTo === 'object' ? user.sharedTo : {};
     const friendNames = new Set((Array.isArray(user?.friends) ? user.friends : []).map(normalized));
     const visibleSharedIds = Object.values(sharedTo)
-        .filter(reference => reference && friendNames.has(normalized(reference.from)))
+        .filter(reference => reference && (reference.invited || friendNames.has(normalized(reference.from))))
         .map(reference => String(reference.id));
     const candidateIds = [...new Set([...ownedIds, ...visibleSharedIds])];
     const authorizedIds = [];

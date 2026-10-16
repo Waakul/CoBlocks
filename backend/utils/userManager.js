@@ -145,13 +145,16 @@ export default class UserManager {
         return true;
     }
 
-    share(username, projectId, owner) {
+    share(username, projectId, owner, invited = false) {
         const user = this.getUser(username);
         if (!user) return false;
 
         const id = String(projectId);
         if (!user.sharedTo || typeof user.sharedTo !== 'object') user.sharedTo = {};
-        if (!user.sharedTo[id]) user.sharedTo[id] = { from: normalizeUsername(owner), id };
+        if (!user.sharedTo[id]) {
+            user.sharedTo[id] = { from: normalizeUsername(owner), id };
+            if (invited) user.sharedTo[id].invited = true;
+        } else if (invited) user.sharedTo[id].invited = true;
         return true;
     }
 
@@ -177,7 +180,7 @@ export default class UserManager {
 
         const friends = new Set(user.friends.map(normalizeUsername).filter(Boolean));
         return this.getSharedObjects(username)
-            .filter(project => friends.has(normalizeUsername(project.from)))
+            .filter(project => project.invited || friends.has(normalizeUsername(project.from)))
             .map(project => String(project.id));
     }
 

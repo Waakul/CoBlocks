@@ -644,6 +644,42 @@ async function backgroundScript() {
                     const response = await authenticatedFetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } });
                     const data = await response.json();
                     sendResponse(response.ok && !data.noauth ? data : { error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load collaborators.') });
+                } else if (request.meta === 'createInvite') {
+                    try {
+                        const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}`, {
+                            method: 'POST',
+                            headers: { authorization: currentCoBlocksToken, uname },
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        sendResponse(response.ok ? { ok: true, ...data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not create an invite.') });
+                    } catch {
+                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                    }
+                } else if (request.meta === 'revokeInvite') {
+                    try {
+                        const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}`, {
+                            method: 'DELETE',
+                            headers: { authorization: currentCoBlocksToken, uname },
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        sendResponse(response.ok ? { ok: true } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not revoke the invite.') });
+                    } catch {
+                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                    }
+                } else if (request.meta === 'acceptInvite') {
+                    try {
+                        const username = await refreshUsername(true);
+                        const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}/accept`, {
+                            method: 'POST',
+                            headers: { authorization: currentCoBlocksToken, uname: username, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: request.token }),
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (response.ok && !data.scratchId && sender.tab?.id) newProjects[sender.tab.id] = data.projectId;
+                        sendResponse(response.ok ? { ok: true, ...data } : { ok: false, status: response.status, error: data.err || (data.noauth ? 'Sign in to CoBlocks before accepting this invite.' : 'Could not accept the invite.') });
+                    } catch {
+                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                    }
                 } else if (request.meta === 'getBackpack') {
                     try {
                         const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } });

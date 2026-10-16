@@ -41,3 +41,15 @@ test('My Stuff drops stale and foreign project references', () => {
     assert.deepEqual(user.myProjects, ['1']);
     assert.deepEqual(user.sharedTo, { 3: { id: '3', from: 'Bob' } });
 });
+
+test('invite collaborators remain visible without being friends with the owner', () => {
+    const user = {
+        username: 'Alice',
+        friends: [],
+        myProjects: [],
+        sharedTo: { 3: { id: '3', from: 'Bob', invited: true } },
+    };
+    const projects = { 3: { owner: 'Bob', sharedWith: ['Alice'] } };
+
+    assert.deepEqual(reconcileProjectReferences('Alice', user, id => projects[id]).authorizedIds, ['3']);
+});

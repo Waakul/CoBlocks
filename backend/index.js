@@ -17,6 +17,7 @@ import { setPaths, authenticate, fullAuthenticate } from './utils/scratch-auth.j
 import { reconcileProjectReferences, userOwnsProject } from './utils/projectAccess.js';
 import { canDeleteBackpackItem, MAX_BACKPACK_ITEMS, normalizeBackpack, validateBackpackItem } from './utils/backpack.js';
 import { isScratchProjectJson } from './utils/projectSnapshot.js';
+import { createInvite, isInviteValid } from './utils/inviteLinks.js';
 import SocketServer from './WebSockets.js';
 
 const app = express();
@@ -555,6 +556,69 @@ api.put('/unshare/:id/:to/', (req, res) => {
     sessionManager.persistProject(req.params.id);
     userManager.persistUser(req.params.to);
     res.send({ success: 'Project successfully unshared.' });
+});
+
+api.post('/invite/:id', (req, res) => {
+    const username = req.headers.uname;
+    if (!requireProjectAccess(res, username, req.headers.authorization, req.params.id)) return;
+
+    const project = sessionManager.getProject(req.params.id);
+    if (!userOwnsProject(project, username)) return res.status(403).send({ err: 'Only the project owner can create an invite.' });
+
+    const { token, storedInvite } = createInvite();
+    const previousInvite = project.collaborationInvite;
+    project.collaborationInvite = storedInvite;
+    if (!sessionManager.persistProject(project.id)) {
+        project.collaborationInvite = previousInvite;
+        return res.status(500).send({ err: 'Could not save the invite.' });
+    }
+
+    res.status(201).send({
+        projectId: String(project.id),
+        token,
+        expiresAt: storedInvite.expiresAt,
+    });
+});
+
+api.delete('/invite/:id', (req, res) => {
+    const username = req.headers.uname;
+    if (!requireProjectAccess(res, username, req.headers.authorization, req.params.id)) return;
+
+    const project = sessionManager.getProject(req.params.id);
+    if (!userOwnsProject(project, username)) return res.status(403).send({ err: 'Only the project owner can revoke an invite.' });
+
+    const previousInvite = project.collaborationInvite;
+    project.collaborationInvite = null;
+    if (!sessionManager.persistProject(project.id)) {
+        project.collaborationInvite = previousInvite;
+        return res.status(500).send({ err: 'Could not revoke the invite.' });
+    }
+    res.send({ success: true });
+});
+
+api.post('/invite/:id/accept', (req, res) => {
+    const username = req.headers.uname;
+    if (!authenticate(username, req.headers.authorization)) return res.status(401).send({ noauth: true });
+
+    const project = sessionManager.getProject(req.params.id);
+    if (!project) return res.status(404).send({ err: 'Project not found.' });
+    if (!isInviteValid(project.collaborationInvite, req.body?.token)) {
+        return res.status(403).send({ err: 'This invite is invalid or has expired.' });
+    }
+
+    if (!userOwnsProject(project, username)) {
+        sessionManager.shareProject(project.id, username);
+        userManager.share(username, project.id, project.owner, true);
+        if (!sessionManager.persistProject(project.id) || !userManager.persistUser(username)) {
+            return res.status(500).send({ err: 'Could not save project access.' });
+        }
+    }
+
+    res.send({
+        success: true,
+        projectId: String(project.id),
+        scratchId: project.getOwnersProject(username)?.scratchId || null,
+    });
 });
 
 app.use(API_PREFIX, api);

@@ -176,6 +176,7 @@ class CollaborativeProject {
             linkedWith: this.linkedWith,
             owner: this.owner,
             sharedWith: this.sharedWith,
+            collaborationInvite: this.collaborationInvite,
             backpack: this.backpack,
             chat: this.chat,
         };
@@ -213,6 +214,7 @@ class CollaborativeProject {
 
     owner;
     sharedWith = [];
+    collaborationInvite = null;
 
     backpack = [];
 
