@@ -1,4 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <filter id="logo-shadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#102653" flood-opacity="0.24"/>
+    </filter>
+  </defs>
   <rect x="32" y="32" width="448" height="448" rx="112" fill="#ffffff"/>
-  <image href="CoBlocksIcon.png" x="88" y="88" width="336" height="336"/>
+  <image href="CoBlocksIcon.png" x="88" y="88" width="336" height="336" filter="url(#logo-shadow)"/>
 </svg>
