@@ -28,13 +28,14 @@ async function clearCurrentCoBlocksToken({ clearAllTokens = false } = {}) {
     const rejectedToken = currentCoBlocksToken;
     const stored = await chrome.storage.local.get(null);
     const matchingTokenKeys = Object.entries(stored)
-        .filter(([key, value]) => /^(lsToken|blToken)\./.test(key) && (clearAllTokens || value === rejectedToken))
+        .filter(([key, value]) => /^(lsToken|blToken|lsTokenExpiresAt)\./.test(key) && (clearAllTokens || value === rejectedToken))
         .map(([key]) => key);
     const usernames = new Set([uname, stored[AUTH_USERNAME_KEY]].filter(username => username && username !== '*'));
     for (const username of usernames) {
         matchingTokenKeys.push(
             `lsToken.${username.toLowerCase()}`,
             `blToken.${username.toLowerCase()}`,
+            `lsTokenExpiresAt.${username.toLowerCase()}`,
         );
     }
     await chrome.storage.local.remove([...new Set([...matchingTokenKeys, AUTH_USERNAME_KEY])]);
@@ -90,7 +91,10 @@ async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
             );
             return null;
         }
-        if (response.ok) await chrome.storage.local.set({ [AUTH_USERNAME_KEY]: verifiedUsername });
+        if (response.ok) await chrome.storage.local.set({
+            [AUTH_USERNAME_KEY]: verifiedUsername,
+            ...(Number.isFinite(data.expiresAt) ? { [`lsTokenExpiresAt.${scratchUsername.toLowerCase()}`]: data.expiresAt } : {}),
+        });
     } catch (error) {
         console.warn('Could not verify the CoBlocks account while the server is unavailable:', error);
     }
@@ -257,6 +261,7 @@ async function completeScratchAuth(tabId, url) {
         await chrome.storage.local.set({
             [`lsToken.${data.username.toLowerCase()}`]: data.token,
             [AUTH_USERNAME_KEY]: data.username,
+            ...(Number.isFinite(data.expiresAt) ? { [`lsTokenExpiresAt.${data.username.toLowerCase()}`]: data.expiresAt } : {}),
         });
         currentCoBlocksToken = data.token;
         try {

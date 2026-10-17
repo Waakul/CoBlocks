@@ -1,10 +1,11 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 // Scratch Auth integration: https://auth.itinerary.eu.org/documentation/using-scratch-auth
 const SCRATCH_AUTH = 'https://auth.itinerary.eu.org';
 const API_PREFIX = '/apiv2';
 const pending = new Map();
 const TTL = 5 * 60_000;
+export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60_000;
 const attempts = new Map();
 let userManager;
 let sessionManager;
@@ -21,6 +22,14 @@ function validUsername(username) {
 
 function createToken() {
     return randomBytes(32).toString('hex');
+}
+
+function tokenHash(token) {
+    return createHash('sha256').update(token).digest('hex');
+}
+
+function sessionExpiry(user, token) {
+    return user.authSessions?.[tokenHash(token)]?.expiresAt ?? user.tokenExpiresAt;
 }
 
 async function verifyPrivateCode(privateCode) {
@@ -95,11 +104,9 @@ export function setPaths(app, users, sessions) {
             }
             const user = userManager.getUser(data.username);
             user.verified = true;
-            user.token = createToken();
             if (!userManager.persistUser(data.username)) throw new Error('Could not save authenticated user');
             item.status = 'complete';
             item.username = data.username;
-            item.token = user.token;
             res.redirect(303, `${API_PREFIX}/auth/scratch/complete?state=${req.query.state}`);
         } catch (error) {
             pending.delete(req.query.state);
@@ -119,10 +126,20 @@ export function setPaths(app, users, sessions) {
     app.post('/auth/scratch/finish', (req, res) => {
         const item = pending.get(req.body?.state);
         if (!item || item.status !== 'complete' || Date.now() - item.createdAt > TTL) return res.status(400).json({ err: 'Login is incomplete or expired.' });
-        pending.delete(req.body.state);
         const user = userManager.findUser(item.username);
-        if (!user?.verified || !authenticate(item.username, item.token)) return res.status(403).json({ err: 'Login was replaced by a newer sign in. Please try again.' });
-        res.json({ username: user.username, token: item.token });
+        if (!user?.verified) return res.status(403).json({ err: 'Please sign in again.' });
+        const token = createToken();
+        const now = Date.now();
+        const expiresAt = now + SESSION_LIFETIME_MS;
+        const previousSessions = user.authSessions;
+        user.authSessions = Object.fromEntries(Object.entries(previousSessions || {}).filter(([, session]) => session && Number.isFinite(session.expiresAt) && session.expiresAt > now));
+        user.authSessions[tokenHash(token)] = { createdAt: now, expiresAt };
+        if (!userManager.persistUser(item.username)) {
+            user.authSessions = previousSessions;
+            return res.status(500).json({ err: 'Could not save the login session. Please try again.' });
+        }
+        pending.delete(req.body.state);
+        res.json({ username: user.username, token, expiresAt });
     });
 
     app.post('/auth/session', (req, res) => {
@@ -130,27 +147,52 @@ export function setPaths(app, users, sessions) {
         if (!authenticate(username, req.headers.authorization)) {
             return res.status(401).json({ noauth: true });
         }
-        res.json({ username: userManager.findUser(username).username });
+        const user = userManager.findUser(username);
+        res.json({ username: user.username, expiresAt: sessionExpiry(user, req.headers.authorization) });
     });
 
     app.post('/auth/logout', (req, res) => {
         const username = req.body?.username;
         if (!authenticate(username, req.headers.authorization)) return res.status(401).json({ err: 'Invalid login.' });
         const user = userManager.findUser(username);
-        user.verified = false;
-        user.token = createToken();
-        if (!userManager.persistUser(username)) return res.status(500).json({ err: 'Could not save logout.' });
+        const previousSessions = user.authSessions;
+        const previousToken = user.token;
+        const previousExpiry = user.tokenExpiresAt;
+        user.authSessions = { ...previousSessions };
+        delete user.authSessions[tokenHash(req.headers.authorization)];
+        if (user.token === req.headers.authorization) {
+            user.token = createToken();
+            user.tokenExpiresAt = 0;
+        }
+        if (!userManager.persistUser(username)) {
+            user.authSessions = previousSessions;
+            user.token = previousToken;
+            user.tokenExpiresAt = previousExpiry;
+            return res.status(500).json({ err: 'Could not save logout.' });
+        }
         res.status(204).send();
     });
 }
 
 export function authenticate(username, token) {
-    if (!validUsername(username) || typeof token !== 'string' || !token) return false;
+    if (!validUsername(username) || typeof token !== 'string' || !token || token.length > 256) return false;
     const user = userManager.findUser(username);
-    if (!user?.verified || typeof user.token !== 'string') return false;
+    if (!user?.verified) return false;
+    const session = user.authSessions?.[tokenHash(token)];
+    if (session) return Number.isFinite(session.expiresAt) && Date.now() < session.expiresAt;
+    // Give existing installations a bounded migration period without forcing a logout.
+    if (typeof user.token !== 'string') return false;
     const expected = Buffer.from(user.token);
     const supplied = Buffer.from(token);
-    return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return false;
+    if (user.tokenExpiresAt === undefined) {
+        user.tokenExpiresAt = Date.now() + SESSION_LIFETIME_MS;
+        if (!userManager.persistUser(username)) {
+            delete user.tokenExpiresAt;
+            return false;
+        }
+    }
+    return Number.isFinite(user.tokenExpiresAt) && Date.now() < user.tokenExpiresAt;
 }
 
 export function fullAuthenticate(username, token, lsId) {

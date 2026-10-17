@@ -26,7 +26,7 @@ function authContext(backgroundReady = Promise.resolve(), options = {}) {
         },
         fetch: async () => {
             finishRequests++;
-            return { ok: true, json: async () => ({ username: 'Recipient', token: 'new-token' }) };
+            return { ok: true, json: async () => ({ username: 'Recipient', token: 'new-token', expiresAt: 123456789 }) };
         },
         finishVerification: success => { assert.equal(success, true); pending = null; },
         chrome: {
@@ -61,6 +61,7 @@ test('auth callback waits for worker initialization and duplicate events consume
     assert.equal(requests(), 1);
     assert.equal(saved['lsToken.recipient'], 'new-token');
     assert.equal(saved.coblocksAuthUsername, 'Recipient');
+    assert.equal(saved['lsTokenExpiresAt.recipient'], 123456789);
     assert.equal(navigations.length, 1);
     assert.equal(navigations[0].url, 'chrome-extension://test/auth/success.html?username=Recipient');
 });

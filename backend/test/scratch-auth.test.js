@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { setPaths, authenticate, fullAuthenticate } from '../utils/scratch-auth.js';
+import { setPaths, authenticate, fullAuthenticate, SESSION_LIFETIME_MS } from '../utils/scratch-auth.js';
 
 function response() {
     return {
@@ -13,7 +13,7 @@ function response() {
     };
 }
 
-test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', async () => {
+test('Scratch Auth issues a persistent 30-day CoBlocks session through a one-time handoff', async () => {
     process.env.PUBLIC_BASE_URL = 'https://livescratchapi.waakul.com';
     const routes = new Map();
     const app = {
@@ -56,6 +56,11 @@ test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', 
         const finish = response();
         routes.get('POST /auth/scratch/finish')({ body: { state } }, finish);
         assert.equal(finish.body.username, 'Alice');
+        const storedSessions = Object.values(users.get('alice').authSessions);
+        assert.equal(storedSessions[0].expiresAt - storedSessions[0].createdAt, SESSION_LIFETIME_MS);
+        assert.equal(finish.body.expiresAt, storedSessions[0].expiresAt);
+        assert.equal(JSON.stringify(users.get('alice').authSessions).includes(finish.body.token), false);
+        users.set('alice', JSON.parse(JSON.stringify(users.get('alice'))));
         assert.equal(authenticate('Alice', finish.body.token), true);
         assert.equal(authenticate('Mallory', finish.body.token), false);
         assert.equal(fullAuthenticate('Alice', finish.body.token, 'owned'), true);
@@ -65,6 +70,7 @@ test('Scratch Auth verifies the redirect and issues a one-time CoBlocks token', 
         routes.get('POST /auth/session')({ body: { username: 'Alice' }, headers: { authorization: finish.body.token } }, session);
         assert.equal(session.statusCode, 200);
         assert.equal(session.body.username, 'Alice');
+        assert.equal(session.body.expiresAt, finish.body.expiresAt);
 
         const differentlyCasedSession = response();
         routes.get('POST /auth/session')({ body: { username: 'aLiCe' }, headers: { authorization: finish.body.token } }, differentlyCasedSession);
@@ -106,7 +112,7 @@ test('Scratch Auth rejects a result for a different redirect', async () => {
     } finally { global.fetch = originalFetch; }
 });
 
-test('an older login cannot claim the token from a newer login', async () => {
+test('parallel sign-ins receive independent sessions and logout revokes only one', async () => {
     process.env.PUBLIC_BASE_URL = 'https://livescratchapi.waakul.com';
     const routes = new Map();
     const app = {
@@ -144,11 +150,47 @@ test('an older login cannot claim the token from a newer login', async () => {
 
         const staleFinish = response();
         routes.get('POST /auth/scratch/finish')({ body: { state: firstStart.body.state } }, staleFinish);
-        assert.equal(staleFinish.statusCode, 403);
+        assert.equal(staleFinish.statusCode, 200);
 
         const currentFinish = response();
         routes.get('POST /auth/scratch/finish')({ body: { state: secondStart.body.state } }, currentFinish);
         assert.match(currentFinish.body.token, /^[a-f0-9]{64}$/);
         assert.equal(authenticate('Alice', currentFinish.body.token), true);
+        assert.notEqual(staleFinish.body.token, currentFinish.body.token);
+        const logout = response();
+        routes.get('POST /auth/logout')({ body: { username: 'Alice' }, headers: { authorization: staleFinish.body.token } }, logout);
+        assert.equal(logout.statusCode, 204);
+        assert.equal(authenticate('Alice', staleFinish.body.token), false);
+        assert.equal(authenticate('Alice', currentFinish.body.token), true);
+        const originalNow = Date.now;
+        try {
+            Date.now = () => currentFinish.body.expiresAt - 1;
+            assert.equal(authenticate('Alice', currentFinish.body.token), true);
+            Date.now = () => currentFinish.body.expiresAt;
+            assert.equal(authenticate('Alice', currentFinish.body.token), false);
+        } finally { Date.now = originalNow; }
     } finally { global.fetch = originalFetch; }
+});
+
+
+test('legacy tokens migrate once to a fixed 30-day expiry', () => {
+    const user = { username: 'Alice', token: 'legacy-token', verified: true };
+    let writes = 0;
+    const manager = { findUser: () => user, persistUser: () => { writes++; return true; } };
+    setPaths({ get() {}, post() {} }, manager, { canUserAccessProject: () => true });
+    const originalNow = Date.now;
+    try {
+        Date.now = () => 1000;
+        assert.equal(authenticate('Alice', 'wrong-token'), false);
+        assert.equal(writes, 0);
+        assert.equal(authenticate('Alice', 'legacy-token'), true);
+        const expiresAt = 1000 + SESSION_LIFETIME_MS;
+        assert.equal(user.tokenExpiresAt, expiresAt);
+        Date.now = () => expiresAt - 1;
+        assert.equal(authenticate('Alice', 'legacy-token'), true);
+        assert.equal(user.tokenExpiresAt, expiresAt);
+        assert.equal(writes, 1);
+        Date.now = () => expiresAt;
+        assert.equal(authenticate('Alice', 'legacy-token'), false);
+    } finally { Date.now = originalNow; }
 });
