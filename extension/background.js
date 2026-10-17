@@ -10,7 +10,7 @@ self.addEventListener = (function (original) {
     };
 })(self.addEventListener);
 
-importScripts('background/socket.io.js', 'background/auth.js');
+if (typeof importScripts === 'function') importScripts('background/socket.io.js', 'background/auth.js');
 
 const API_PREFIX = '/apiv2';
 const RECOVERY_DB_NAME = 'LiveScratchRecovery'; // Keep the legacy name so existing recovery data remains available.
@@ -155,14 +155,16 @@ chrome.webNavigation.onBeforeNavigate.addListener(details => {
 
 let apiUrl;
 
-chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+function handleApiUrlRequest(request, sender, sendResponse) {
     if (request.meta !== 'getAPI-URL') return false;
     if (!sender.url?.startsWith('https://scratch.mit.edu/')) return false;
     getApiUrl().then(url => sendResponse({ apiURL: url })).catch(error => {
         sendResponse({ error: error.message });
     });
     return true;
-});
+}
+chrome.runtime.onMessageExternal.addListener(handleApiUrlRequest);
+chrome.runtime.onMessage.addListener(handleApiUrlRequest);
 
 const backgroundReady = getApiUrl()
     .catch(error => {
@@ -178,6 +180,11 @@ backgroundReady.then(() => resumeScratchAuth()).catch(error => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.meta === 'scratchBridgeReady' && sender.url?.startsWith('https://scratch.mit.edu/')) {
+        backgroundReady.then(() => sendResponse({ ready: true })).catch(error => sendResponse({ error: error.message }));
+        return true;
+    }
+    if (sender.url?.startsWith('https://scratch.mit.edu/')) return false;
     if (message.meta === 'getAPI-URL') {
         sendResponse({ apiURL: apiUrl });
         return false;
@@ -594,13 +601,13 @@ async function backgroundScript() {
 
 
     // Connections to scratch editor instances
-    chrome.runtime.onConnectExternal.addListener(function (port) {
+    function connectScratchEditor(port) {
         if (!isTrustedScratchSender(port.sender)) {
             port.disconnect();
             return;
         }
         if (!socket.connected) socket.connect();
-        port.name = ++lastPortId;
+        const portId = ++lastPortId;
         ports.push(port);
 
         let lsId = '';
@@ -608,7 +615,7 @@ async function backgroundScript() {
         port.onMessage.addListener(async function (msg) {
 
             if (msg.meta === 'blockly.event' || msg.meta === 'sprite.proxy' || msg.meta === 'vm.blockListen' || msg.meta === 'vm.shareBlocks' || msg.meta === 'vm.replaceBlocks' || msg.meta === 'vm.updateBitmap' || msg.meta === 'vm.updateSvg' || msg.meta === 'version++') {
-                const lsIdd = portProjects[port.name];
+                const lsIdd = portProjects[portId];
 
                 msg.user = uname;
                 playChange(lsIdd, msg, port);
@@ -625,13 +632,13 @@ async function backgroundScript() {
                 if (!(msg.id in projectPorts)) {
                     projectPorts[msg.id] = [];
                 }
-                if (!(port.name in portProjects)) {
+                if (!(portId in portProjects)) {
                     projectPorts[msg.id].push(port);
-                    portProjects[port.name] = msg.id;
+                    portProjects[portId] = msg.id;
                 }
             } else if (msg.meta === 'joinSession') {
                 await makeSureUsernameExists();
-                socket.send({ type: 'joinSession', id: portProjects[port.name], username: await makeSureUsernameExists(), pk: upk, token: currentCoBlocksToken });
+                socket.send({ type: 'joinSession', id: portProjects[portId], username: await makeSureUsernameExists(), pk: upk, token: currentCoBlocksToken });
             } else if (msg.meta === 'setTitle') {
                 playChange(lsId, msg, port);
                 // send to websocket
@@ -670,7 +677,7 @@ async function backgroundScript() {
                         chrome.notifications.onClicked.addListener(notif => {
                             const notification = notificationsDb[notif];
                             if (!notification) return;
-                            chrome.tabs.update(notification.tab, { selected: true });
+                            chrome.tabs.update(notification.tab, { active: true });
                             chrome.windows.update(notification.window, { focused: true });
                             if (notification.action === 'chat') {
                                 ports.find(openPort => openPort.sender.tab?.id === notification.tab)?.postMessage({ meta: 'openChat' });
@@ -695,11 +702,11 @@ async function backgroundScript() {
             const portIndex = ports.indexOf(disconnectedPort);
             if (portIndex !== -1) ports.splice(portIndex, 1);
 
-            const projectId = portProjects[disconnectedPort.name];
+            const projectId = portProjects[portId];
             const projectPortList = projectPorts[projectId];
             const projectPortIndex = projectPortList?.indexOf(disconnectedPort) ?? -1;
             if (projectPortIndex !== -1) projectPortList.splice(projectPortIndex, 1);
-            delete portProjects[disconnectedPort.name];
+            delete portProjects[portId];
             setTimeout(() => {
                 if (projectPorts[projectId]?.length === 0) {
                     socket.send({ type: 'leaveSession', id: projectId });
@@ -708,196 +715,199 @@ async function backgroundScript() {
                 if (ports.length === 0) socket.disconnect();
             }, 5000);
         });
-    });
+    }
+    chrome.runtime.onConnectExternal.addListener(connectScratchEditor);
+    chrome.runtime.onConnect.addListener(connectScratchEditor);
     const notificationsDb = {};
     let notifListenerAdded = false;
 
     // Proxy project update messages
-    chrome.runtime.onMessageExternal.addListener(
-        function (request, sender, sendResponse) {
-            if (!isTrustedScratchSender(sender)) return false;
-            if (request.meta === 'getAPI-URL') return false;
-            (async () => {
-                if (request.meta === 'getLsId') {
-                    if (!request.scratchId || request.scratchId === '.') { sendResponse(''); return; }
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/lsId/${request.scratchId}/${uname}`, { headers: { authorization: currentCoBlocksToken } });
-                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                        const serverId = (await response.text()).replaceAll('"', '');
-                        if (serverId && serverId !== 'null') {
-                            await recoveryPut('links', { key: recoveryKey(request.scratchId), identity: recoveryIdentity(), scratchId: String(request.scratchId), lsId: String(serverId), savedAt: Date.now() })
-                                .catch(error => console.error('Could not cache the CoBlocks project link:', error));
-                            sendResponse(serverId);
-                            return;
-                        }
-                    } catch (error) { console.warn('Could not load CoBlocks project link from the server:', error); }
-                    sendResponse((await getLocalProjectLink(request.scratchId).catch(() => null))?.lsId || '');
-                    // } else if(request.meta ==='getInpoint') {
-                    //   sendResponse(await (await fetch(`${apiUrl}/projectInpoint/${request.lsId}`)).json())
-                } else if (request.meta === 'getJson') {
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/projectJSON/${request.lsId}?username=${uname}`, { headers: { authorization: currentCoBlocksToken } });
-                        const data = await response.json().catch(() => null);
-                        if (data?.noauth) { sendResponse({ err: 'Your CoBlocks login expired.' }); return; }
-                        if (!response.ok || !data || !isValidProjectJson(data.json)) throw new Error(`Invalid server project response (${response.status})`);
-                        await saveLocalProjectSnapshot(request.lsId, request.scratchId, data.json, data.version)
-                            .catch(error => console.error('Could not cache the server project snapshot:', error));
-                        sendResponse(data);
-                    } catch (error) {
-                        console.warn('Using local CoBlocks project recovery snapshot:', error);
-                        const local = await getLocalProjectSnapshot(request.lsId).catch(() => null);
-                        sendResponse(local && isValidProjectJson(local.json)
-                            ? { json: local.json, version: local.version, recoveredLocally: true, savedAt: local.savedAt }
-                            : { err: 'The project is unavailable and no valid local recovery snapshot exists.' });
+    function handleScratchMessage(request, sender, sendResponse) {
+        if (!isTrustedScratchSender(sender)) return false;
+        if (request.meta === 'getAPI-URL') return false;
+        (async () => {
+            if (request.meta === 'getLsId') {
+                if (!request.scratchId || request.scratchId === '.') { sendResponse(''); return; }
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/lsId/${request.scratchId}/${uname}`, { headers: { authorization: currentCoBlocksToken } });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const serverId = (await response.text()).replaceAll('"', '');
+                    if (serverId && serverId !== 'null') {
+                        await recoveryPut('links', { key: recoveryKey(request.scratchId), identity: recoveryIdentity(), scratchId: String(request.scratchId), lsId: String(serverId), savedAt: Date.now() })
+                            .catch(error => console.error('Could not cache the CoBlocks project link:', error));
+                        sendResponse(serverId);
+                        return;
                     }
-                } else if (request.meta === 'getChanges') {
-                    sendResponse(await (await authenticatedFetch(`${apiUrl}/changesSince/${request.lsId}/${request.version}`, { headers: { authorization: currentCoBlocksToken, uname } })).json());
-                } else if (request.meta === 'getUsername') {
-                    sendResponse(uname);
-                } else if (request.meta === 'getUsernamePlus') {
-                    await refreshUsername();
-                    sendResponse({
-                        uname,
-                        signedin,
-                        currentCoBlocksToken,
-                        currentLsToken: currentCoBlocksToken,
-                        apiUrl,
-                    });
-                } else if (request.meta === 'callback') {
-                    tabCallbacks[sender.tab.id] = sendResponse;
-                    if (pendingTabInitializations[sender.tab.id]) {
-                        sendResponse({ meta: 'initCoBlocks', lsId: pendingTabInitializations[sender.tab.id] });
-                        delete pendingTabInitializations[sender.tab.id];
-                        delete tabCallbacks[sender.tab.id];
-                    }
-                } else if (request.meta === 'projectSaved') {
-                    // {meta:'projectSaved',lsId,scratchId,version:lsVersion}
-                    authenticatedFetch(`${apiUrl}/projectSaved/${request.scratchId}/${request.version}`, { method: 'POST', headers: { authorization: currentCoBlocksToken } });
-                } else if (request.meta === 'projectSavedJSON') {
-                    await saveLocalProjectSnapshot(request.lsId, request.scratchId, request.json, request.version).catch(error => console.error('Could not save local project recovery snapshot:', error));
-                    authenticatedFetch(`${apiUrl}/projectSavedJSON/${request.lsId}/${request.version}`, { method: 'POST', body: request.json, headers: { 'Content-Type': 'application/json', authorization: currentCoBlocksToken, uname } }).catch(error => console.error('Could not save project to the CoBlocks server:', error));
-                } else if (request.meta === 'cacheProjectLocally') {
-                    sendResponse({ ok: await saveLocalProjectSnapshot(request.lsId, request.scratchId, request.json, request.version).catch(error => { console.error('Could not update local project recovery snapshot:', error); return false; }) });
-                } else if (request.meta === 'myStuff') {
-                    sendResponse(await (await authenticatedFetch(`${apiUrl}/userProjectsScratch/${await makeSureUsernameExists()}`, { headers: { authorization: currentCoBlocksToken } })).json());
-                } else if (request.meta === 'create') {
-                    const result = await (await authenticatedFetch(`${apiUrl}/newProject/${request.scratchId}/${await refreshUsername()}?title=${encodeURIComponent(request.title)}`,
-                        {
-                            method: 'POST',
-                            body: request.json,
-                            headers: { 'Content-Type': 'application/json', authorization: currentCoBlocksToken },
-                        }).then(res => res.json()).catch(e => ({ err: e.toString() })));
-                    if (result?.id) await saveLocalProjectSnapshot(result.id, request.scratchId, request.json, 0).catch(error => console.error('Could not create local project recovery snapshot:', error));
-                    sendResponse(result);
-                } else if (request.meta === 'shareWith') {
-                    const response = await authenticatedFetch(`${apiUrl}/share/${request.id}/${request.username}/${uname}?pk=${request.pk}`, {
-                        method: 'PUT',
-                        headers: { authorization: currentCoBlocksToken },
-                    });
-                    const data = await response.json().catch(() => ({}));
-                    sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : null) });
-                } else if (request.meta === 'unshareWith') {
-                    const response = await authenticatedFetch(`${apiUrl}/unshare/${request.id}/${request.user}`, {
-                        method: 'PUT',
+                } catch (error) { console.warn('Could not load CoBlocks project link from the server:', error); }
+                sendResponse((await getLocalProjectLink(request.scratchId).catch(() => null))?.lsId || '');
+                // } else if(request.meta ==='getInpoint') {
+                //   sendResponse(await (await fetch(`${apiUrl}/projectInpoint/${request.lsId}`)).json())
+            } else if (request.meta === 'getJson') {
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/projectJSON/${request.lsId}?username=${uname}`, { headers: { authorization: currentCoBlocksToken } });
+                    const data = await response.json().catch(() => null);
+                    if (data?.noauth) { sendResponse({ err: 'Your CoBlocks login expired.' }); return; }
+                    if (!response.ok || !data || !isValidProjectJson(data.json)) throw new Error(`Invalid server project response (${response.status})`);
+                    await saveLocalProjectSnapshot(request.lsId, request.scratchId, data.json, data.version)
+                        .catch(error => console.error('Could not cache the server project snapshot:', error));
+                    sendResponse(data);
+                } catch (error) {
+                    console.warn('Using local CoBlocks project recovery snapshot:', error);
+                    const local = await getLocalProjectSnapshot(request.lsId).catch(() => null);
+                    sendResponse(local && isValidProjectJson(local.json)
+                        ? { json: local.json, version: local.version, recoveredLocally: true, savedAt: local.savedAt }
+                        : { err: 'The project is unavailable and no valid local recovery snapshot exists.' });
+                }
+            } else if (request.meta === 'getChanges') {
+                sendResponse(await (await authenticatedFetch(`${apiUrl}/changesSince/${request.lsId}/${request.version}`, { headers: { authorization: currentCoBlocksToken, uname } })).json());
+            } else if (request.meta === 'getUsername') {
+                sendResponse(uname);
+            } else if (request.meta === 'getUsernamePlus') {
+                await refreshUsername();
+                sendResponse({
+                    uname,
+                    signedin,
+                    currentCoBlocksToken,
+                    currentLsToken: currentCoBlocksToken,
+                    apiUrl,
+                });
+            } else if (request.meta === 'callback') {
+                tabCallbacks[sender.tab.id] = sendResponse;
+                if (pendingTabInitializations[sender.tab.id]) {
+                    sendResponse({ meta: 'initCoBlocks', lsId: pendingTabInitializations[sender.tab.id] });
+                    delete pendingTabInitializations[sender.tab.id];
+                    delete tabCallbacks[sender.tab.id];
+                }
+            } else if (request.meta === 'projectSaved') {
+                // {meta:'projectSaved',lsId,scratchId,version:lsVersion}
+                authenticatedFetch(`${apiUrl}/projectSaved/${request.scratchId}/${request.version}`, { method: 'POST', headers: { authorization: currentCoBlocksToken } });
+            } else if (request.meta === 'projectSavedJSON') {
+                await saveLocalProjectSnapshot(request.lsId, request.scratchId, request.json, request.version).catch(error => console.error('Could not save local project recovery snapshot:', error));
+                authenticatedFetch(`${apiUrl}/projectSavedJSON/${request.lsId}/${request.version}`, { method: 'POST', body: request.json, headers: { 'Content-Type': 'application/json', authorization: currentCoBlocksToken, uname } }).catch(error => console.error('Could not save project to the CoBlocks server:', error));
+            } else if (request.meta === 'cacheProjectLocally') {
+                sendResponse({ ok: await saveLocalProjectSnapshot(request.lsId, request.scratchId, request.json, request.version).catch(error => { console.error('Could not update local project recovery snapshot:', error); return false; }) });
+            } else if (request.meta === 'myStuff') {
+                sendResponse(await (await authenticatedFetch(`${apiUrl}/userProjectsScratch/${await makeSureUsernameExists()}`, { headers: { authorization: currentCoBlocksToken } })).json());
+            } else if (request.meta === 'create') {
+                const result = await (await authenticatedFetch(`${apiUrl}/newProject/${request.scratchId}/${await refreshUsername()}?title=${encodeURIComponent(request.title)}`,
+                    {
+                        method: 'POST',
+                        body: request.json,
+                        headers: { 'Content-Type': 'application/json', authorization: currentCoBlocksToken },
+                    }).then(res => res.json()).catch(e => ({ err: e.toString() })));
+                if (result?.id) await saveLocalProjectSnapshot(result.id, request.scratchId, request.json, 0).catch(error => console.error('Could not create local project recovery snapshot:', error));
+                sendResponse(result);
+            } else if (request.meta === 'shareWith') {
+                const response = await authenticatedFetch(`${apiUrl}/share/${request.id}/${request.username}/${uname}?pk=${request.pk}`, {
+                    method: 'PUT',
+                    headers: { authorization: currentCoBlocksToken },
+                });
+                const data = await response.json().catch(() => ({}));
+                sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : null) });
+            } else if (request.meta === 'unshareWith') {
+                const response = await authenticatedFetch(`${apiUrl}/unshare/${request.id}/${request.user}`, {
+                    method: 'PUT',
+                    headers: { authorization: currentCoBlocksToken, uname },
+                });
+                const data = await response.json().catch(() => ({}));
+                sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : null) });
+            } else if (request.meta === 'getShared') {
+                const response = await authenticatedFetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } });
+                const data = await response.json();
+                sendResponse(response.ok && !data.noauth ? data : { error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load collaborators.') });
+            } else if (request.meta === 'createInvite') {
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}`, {
+                        method: 'POST',
                         headers: { authorization: currentCoBlocksToken, uname },
                     });
                     const data = await response.json().catch(() => ({}));
-                    sendResponse({ ok: response.ok && !!data.success, status: response.status, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : null) });
-                } else if (request.meta === 'getShared') {
-                    const response = await authenticatedFetch(`${apiUrl}/share/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } });
-                    const data = await response.json();
-                    sendResponse(response.ok && !data.noauth ? data : { error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load collaborators.') });
-                } else if (request.meta === 'createInvite') {
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}`, {
-                            method: 'POST',
-                            headers: { authorization: currentCoBlocksToken, uname },
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        sendResponse(response.ok ? { ok: true, ...data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not create an invite.') });
-                    } catch {
-                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
-                    }
-                } else if (request.meta === 'revokeInvite') {
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}`, {
-                            method: 'DELETE',
-                            headers: { authorization: currentCoBlocksToken, uname },
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        sendResponse(response.ok ? { ok: true } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not revoke the invite.') });
-                    } catch {
-                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
-                    }
-                } else if (request.meta === 'acceptInvite') {
-                    try {
-                        sendResponse(await acceptInvite(request.id, request.token, sender.tab?.id, sender.tab?.url));
-                    } catch {
-                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
-                    }
-                } else if (request.meta === 'getBackpack') {
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } });
-                        const data = await response.json().catch(() => ({}));
-                        sendResponse(response.ok ? { ok: true, items: data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load the shared backpack.') });
-                    } catch (error) {
-                        console.error('Could not load the shared backpack:', error);
-                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
-                    }
-                } else if (request.meta === 'addBackpackItem') {
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, {
-                            method: 'POST',
-                            headers: { authorization: currentCoBlocksToken, uname, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name: request.name, blocks: request.blocks, thumbnail: request.thumbnail }),
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        sendResponse(response.ok ? { ok: true, item: data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not share that script.') });
-                    } catch (error) {
-                        console.error('Could not add to the shared backpack:', error);
-                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
-                    }
-                } else if (request.meta === 'deleteBackpackItem') {
-                    try {
-                        const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}/${encodeURIComponent(request.itemId)}`, {
-                            method: 'DELETE',
-                            headers: { authorization: currentCoBlocksToken, uname },
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        sendResponse(response.ok ? { ok: true } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not remove that script.') });
-                    } catch (error) {
-                        console.error('Could not remove from the shared backpack:', error);
-                        sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
-                    }
-                } else if (request.meta === 'getTitle') {
-                    sendResponse((await (await authenticatedFetch(`${apiUrl}/projectTitle/${request.lsId}`, { headers: { authorization: currentCoBlocksToken, uname } })).json()).title);
-                } else if (request.meta === 'leaveScratchId') {
-                    authenticatedFetch(`${apiUrl}/leaveScratchId/${request.scratchId}/${await refreshUsername()}`, {
-                        method: 'PUT',
-                        headers: { authorization: currentCoBlocksToken },
-                    });
-                } else if (request.meta === 'leaveLSId') {
-                    authenticatedFetch(`${apiUrl}/leaveLSId/${request.lsId}/${await refreshUsername()}`, {
-                        method: 'PUT',
-                        headers: { authorization: currentCoBlocksToken },
-                    });
-                } else if (request.meta === 'getActive') {
-                    sendResponse(await (await authenticatedFetch(`${apiUrl}/active/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } })).json());
-                } else if (request.meta === 'getUrl') {
-                    sendResponse(await chrome.runtime.getURL(request.for));
-                } else if (request.meta === 'isPingEnabled') {
-                    sendResponse((await chrome.storage.local.get(['ping'])).ping);
-                } else if (request.meta === 'userExists') {
-                    sendResponse(await testUserExists(request.username));
-                } else if (request.meta === 'badges?') {
-                    sendResponse({ badges: (await chrome.storage.local.get(['badges'])).badges });
+                    sendResponse(response.ok ? { ok: true, ...data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not create an invite.') });
+                } catch {
+                    sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
                 }
-            })().catch(error => {
-                console.error('CoBlocks editor request failed:', request.meta, error);
-                sendResponse({ ok: false, error: error.message || 'Could not complete the CoBlocks request.' });
-            });
-            return true;
+            } else if (request.meta === 'revokeInvite') {
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}`, {
+                        method: 'DELETE',
+                        headers: { authorization: currentCoBlocksToken, uname },
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    sendResponse(response.ok ? { ok: true } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not revoke the invite.') });
+                } catch {
+                    sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                }
+            } else if (request.meta === 'acceptInvite') {
+                try {
+                    sendResponse(await acceptInvite(request.id, request.token, sender.tab?.id, sender.tab?.url));
+                } catch {
+                    sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                }
+            } else if (request.meta === 'getBackpack') {
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } });
+                    const data = await response.json().catch(() => ({}));
+                    sendResponse(response.ok ? { ok: true, items: data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not load the shared backpack.') });
+                } catch (error) {
+                    console.error('Could not load the shared backpack:', error);
+                    sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                }
+            } else if (request.meta === 'addBackpackItem') {
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}`, {
+                        method: 'POST',
+                        headers: { authorization: currentCoBlocksToken, uname, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: request.name, blocks: request.blocks, thumbnail: request.thumbnail }),
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    sendResponse(response.ok ? { ok: true, item: data } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not share that script.') });
+                } catch (error) {
+                    console.error('Could not add to the shared backpack:', error);
+                    sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                }
+            } else if (request.meta === 'deleteBackpackItem') {
+                try {
+                    const response = await authenticatedFetch(`${apiUrl}/backpack/${request.id}/${encodeURIComponent(request.itemId)}`, {
+                        method: 'DELETE',
+                        headers: { authorization: currentCoBlocksToken, uname },
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    sendResponse(response.ok ? { ok: true } : { ok: false, error: data.err || (data.noauth ? 'Your CoBlocks login expired.' : 'Could not remove that script.') });
+                } catch (error) {
+                    console.error('Could not remove from the shared backpack:', error);
+                    sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
+                }
+            } else if (request.meta === 'getTitle') {
+                sendResponse((await (await authenticatedFetch(`${apiUrl}/projectTitle/${request.lsId}`, { headers: { authorization: currentCoBlocksToken, uname } })).json()).title);
+            } else if (request.meta === 'leaveScratchId') {
+                authenticatedFetch(`${apiUrl}/leaveScratchId/${request.scratchId}/${await refreshUsername()}`, {
+                    method: 'PUT',
+                    headers: { authorization: currentCoBlocksToken },
+                });
+            } else if (request.meta === 'leaveLSId') {
+                authenticatedFetch(`${apiUrl}/leaveLSId/${request.lsId}/${await refreshUsername()}`, {
+                    method: 'PUT',
+                    headers: { authorization: currentCoBlocksToken },
+                });
+            } else if (request.meta === 'getActive') {
+                sendResponse(await (await authenticatedFetch(`${apiUrl}/active/${request.id}`, { headers: { authorization: currentCoBlocksToken, uname } })).json());
+            } else if (request.meta === 'getUrl') {
+                sendResponse(await chrome.runtime.getURL(request.for));
+            } else if (request.meta === 'isPingEnabled') {
+                sendResponse((await chrome.storage.local.get(['ping'])).ping);
+            } else if (request.meta === 'userExists') {
+                sendResponse(await testUserExists(request.username));
+            } else if (request.meta === 'badges?') {
+                sendResponse({ badges: (await chrome.storage.local.get(['badges'])).badges });
+            }
+        })().catch(error => {
+            console.error('CoBlocks editor request failed:', request.meta, error);
+            sendResponse({ ok: false, error: error.message || 'Could not complete the CoBlocks request.' });
         });
+        return true;
+    }
+    chrome.runtime.onMessageExternal.addListener(handleScratchMessage);
+    chrome.runtime.onMessage.addListener(handleScratchMessage);
 
     function isTrustedScratchSender(sender) {
         const source = sender?.url || sender?.tab?.url || sender?.origin;
@@ -910,6 +920,7 @@ async function backgroundScript() {
 
 
     chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
+        if (isTrustedScratchSender(sender)) return false;
         if (request.meta === 'getUsername') {
             sendResponse(uname);
         } else if (request.meta === 'getUsernamePlus') {

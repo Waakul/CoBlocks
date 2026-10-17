@@ -37,7 +37,7 @@ function listenForObj(query, callback) {
 // LSM!!!!
 function getBlMyStuff() {
     return new Promise((promRes) => {
-        chrome.runtime.sendMessage(exId, { meta: 'myStuff' }, promRes);
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'myStuff' }, promRes);
     });
 }
 
@@ -52,9 +52,9 @@ function sendLeave(scratchId, lsId) {
     const index = lsMySTuff.findIndex(item => String(item.scratchId) === String(scratchId));
     if (index !== -1) lsMySTuff.splice(index, 1);
     if (lsId) {
-        chrome.runtime.sendMessage(exId, { meta: 'leaveLSId', lsId });
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'leaveLSId', lsId });
     } else {
-        chrome.runtime.sendMessage(exId, { meta: 'leaveScratchId', scratchId });
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'leaveScratchId', scratchId });
     }
 }
 
@@ -394,7 +394,7 @@ async function onTabLoad() {
 }
 
 
-chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) => {
+window.coBlocksRuntime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) => {
     if (!userData.currentCoBlocksToken) {
 
         let newVerified = false;
@@ -422,7 +422,7 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
 
 
 
-        chrome.runtime.sendMessage(exId, { meta: 'verifying' }, (verifying) => {
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'verifying' }, (verifying) => {
             if (verifying) {
                 document.querySelector('#verifying')?.remove();
                 document.querySelector('.box-head').insertAdjacentHTML('afterend', '<div class="lsBanner" id="verifying" style="background:#e7a91b; color:white;">CoBlocks sign in is in progress…</div>');
@@ -438,10 +438,10 @@ chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, async (userData) =
 
 
 function addStartVerificationCallback(cb) {
-    chrome.runtime.sendMessage(exId, { meta: 'startVerifyCallback' }, cb);
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'startVerifyCallback' }, cb);
 }
 function addEndVerificationCallback(cb) {
-    chrome.runtime.sendMessage(exId, { meta: 'endVerifyCallback' }, cb);
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'endVerifyCallback' }, cb);
 }
 
 onTabLoad();
@@ -454,7 +454,7 @@ function addHideCoBlocksButton(on) {
     document.getElementById('hideBLButton')?.remove();
     document.querySelector('#main-content > div.action-bar.scroll > div > div').insertAdjacentHTML('afterend', `
     <span class="hideButton" id="hideBLButton" style="text-decoration:underline; cursor:pointer;
-  color:lightblue" onclick="(()=>{chrome.runtime.sendMessage(exId,{meta:'dontShowVerifyError',val:${!on}}); toggleHideCoBlocks()})();">${innerds}</span>`);
+  color:lightblue" onclick="(()=>{window.coBlocksRuntime.sendMessage(exId,{meta:'dontShowVerifyError',val:${!on}}); toggleHideCoBlocks()})();">${innerds}</span>`);
 
     document.getElementById('lsBannerCSS')?.remove();
     document.head.insertAdjacentHTML('afterbegin', on ? '<style id="lsBannerCSS">.lsBanner{display:default}</style>' : '<style id="lsBannerCSS">.lsBanner{display:none}</style>');
@@ -466,7 +466,7 @@ function toggleHideCoBlocks() {
 let actuallyShown = false;
 function defaultAddHideCoBlocksButton(hideButton) {
     if (!hideButton) { actuallyShown = true; }
-    chrome.runtime.sendMessage(exId, { meta: 'getShowVerifyError' }, answer => {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'getShowVerifyError' }, answer => {
         addHideCoBlocksButton(answer);
         if (hideButton && !actuallyShown) { removeHideCoBlocksButton(); }
     });

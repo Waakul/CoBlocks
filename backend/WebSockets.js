@@ -100,12 +100,11 @@ export default class SocketServer {
         const pointer = data.pointer;
         if (!member || !pointer || typeof pointer.visible !== 'boolean') return;
         if (pointer.visible && (
-            !['workspace', 'editor'].includes(pointer.space)
+            pointer.space !== 'workspace'
             || !Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)
             || Math.abs(pointer.x) > 1_000_000 || Math.abs(pointer.y) > 1_000_000
-            || !Number.isInteger(pointer.editorTab) || pointer.editorTab < 0 || pointer.editorTab > 2
+            || pointer.editorTab !== 0
             || typeof pointer.targetName !== 'string' || pointer.targetName.length > 200
-            || (pointer.space === 'editor' && (pointer.x < 0 || pointer.x > 1 || pointer.y < 0 || pointer.y > 1))
         )) return;
         const now = Date.now();
         if (pointer.visible && now - (member.lastPointerAt || 0) < 40) return;

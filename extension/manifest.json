@@ -12,9 +12,22 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://livescratchapi.waakul.com/apiv2/auth/scratch/complete*"],
-      "js": ["auth/complete.js"],
+      "matches": [
+        "https://livescratchapi.waakul.com/apiv2/auth/scratch/complete*"
+      ],
+      "js": [
+        "auth/complete.js"
+      ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://scratch.mit.edu/*"
+      ],
+      "js": [
+        "injectors/bridge.js"
+      ],
+      "run_at": "document_start"
     },
     {
       "matches": [
@@ -47,12 +60,18 @@
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": [
+      "background/socket.io.js",
+      "background/auth.js",
+      "background.js"
+    ]
   },
   "permissions": [
     "storage",
     "cookies",
-    "webNavigation"
+    "webNavigation",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://scratch.mit.edu/*",
@@ -73,7 +92,8 @@
         "scripts/mystuff.js",
         "img/CoBlocksIcon.png",
         "img/CoBlocksLogo.png",
-        "sounds/ping.mp3"
+        "sounds/ping.mp3",
+        "scripts/runtime.js"
       ],
       "matches": [
         "https://scratch.mit.edu/*"
@@ -91,5 +111,20 @@
       "32": "icon32.png"
     },
     "default_popup": "popups/popup.html"
+  },
+  "minimum_chrome_version": "121",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "coblocks@waakul.com",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "personalCommunications",
+          "websiteContent",
+          "websiteActivity"
+        ]
+      }
+    }
   }
 }

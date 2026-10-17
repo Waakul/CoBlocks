@@ -17,7 +17,7 @@
     ].join(',');
 
     function sendMessage(message) {
-        return new Promise(resolve => chrome.runtime.sendMessage(extensionId, message, resolve));
+        return new Promise(resolve => window.coBlocksRuntime.sendMessage(extensionId, message, resolve));
     }
 
     function addBadge(usernameElement) {

@@ -257,7 +257,7 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
         } catch (error) {
             showDialog(errorDialog);
             const message = error.stack || error.message || String(error);
-            document.querySelector('#error-content').textContent = message.replace(new RegExp(`chrome-extension://${chrome.runtime.id}/`, 'g'), '');
+            document.querySelector('#error-content').textContent = message.split(chrome.runtime.getURL('')).join('');
         }
     }
 

@@ -6,4 +6,5 @@ backend/storage
 backend/storage-redundancy
 backend/storage-backups/
 /debug/
+/dist/
 backend/.env

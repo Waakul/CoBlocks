@@ -25,6 +25,7 @@ const browserGlobals = {
     TextEncoder: 'readonly',
     URLSearchParams: 'readonly',
     window: 'readonly',
+    injectCoBlocksPageScript: 'readonly',
 };
 
 const sharedRules = {

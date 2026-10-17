@@ -3,7 +3,7 @@ badgeScript.className = 'livescratch-ext-2';
 badgeScript.dataset.exId = chrome.runtime.id;
 badgeScript.dataset.logoUrl = chrome.runtime.getURL('/img/CoBlocksIcon.png');
 badgeScript.src = chrome.runtime.getURL('/scripts/badge.js');
-(document.head || document.documentElement).appendChild(badgeScript);
+injectCoBlocksPageScript(badgeScript);
 
 // Service-worker requests to scratch.mit.edu may lose cookies when the browser
 // blocks third-party cookies. A content script runs in the Scratch tab's site

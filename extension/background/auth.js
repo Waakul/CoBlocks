@@ -358,7 +358,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+function handleVerificationRequest(request, sender, sendResponse) {
+    if (!sender.url?.startsWith('https://scratch.mit.edu/')) return false;
     if (request.meta === 'startVerifyCallback') {
         if (verifying) sendResponse(); else startVerifyCallbacks.push(sendResponse);
         return true;
@@ -377,4 +378,6 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
         chrome.storage.local.set({ dontShowVerifyError: request.val });
         return true;
     }
-});
+}
+chrome.runtime.onMessageExternal.addListener(handleVerificationRequest);
+chrome.runtime.onMessage.addListener(handleVerificationRequest);

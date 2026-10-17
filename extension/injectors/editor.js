@@ -17,13 +17,4 @@ editorScript.dataset.exId = chrome.runtime.id;
 editorScript.dataset.logoUrl = chrome.runtime.getURL('/img/CoBlocksIcon.png');
 editorScript.src = chrome.runtime.getURL('/scripts/editor.js');
 
-function injectEditorScript() {
-    const root = document.head || document.documentElement;
-    if (!root) return false;
-    root.appendChild(editorScript);
-    return true;
-}
-
-if (!injectEditorScript()) {
-    document.addEventListener('readystatechange', injectEditorScript, { once: true });
-}
+injectCoBlocksPageScript(editorScript);

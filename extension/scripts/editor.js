@@ -16,13 +16,13 @@ if (initialInvite.projectId && initialInvite.token) {
     initialUrl.searchParams.delete('coblocksInvite');
     history.replaceState(null, '', initialUrl);
 }
-chrome.runtime.sendMessage(exId, { meta: 'getAPI-URL' }, function(response) {
-    if (chrome.runtime.lastError) return;
+window.coBlocksRuntime.sendMessage(exId, { meta: 'getAPI-URL' }, function(response) {
+    if (window.coBlocksRuntime.lastError) return;
     if (response?.apiURL) apiUrl = response.apiURL;
 });
 
-chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
-    if (chrome.runtime.lastError) return;
+window.coBlocksRuntime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
+    if (window.coBlocksRuntime.lastError) return;
     if (userData?.apiUrl) apiUrl = userData.apiUrl;
 });
 
@@ -86,7 +86,7 @@ function waitFor(lambda) {
 ///.......... BG SCRIPT CONNECTION SETUP ..........//
 
 // Connect To Background Script
-// var port = chrome.runtime.connect(exId);
+// var port = window.coBlocksRuntime.connect(exId);
 let port;
 let isConnected = false;
 
@@ -114,7 +114,7 @@ const registerChromePortListeners = () => {
 function reconnectIfNeeded() {
     if (coblocksDisabled) { return; }
     if (!isConnected) {
-        port = chrome.runtime.connect(exId);
+        port = window.coBlocksRuntime.connect(exId);
         isConnected = (!!port);
         if (isConnected) {
             registerChromePortListeners();
@@ -141,7 +141,7 @@ let localRecoveryTimer;
 function cacheCurrentProjectLocally() {
     if (!lsId || !vm || coblocksDisabled) return;
     try {
-        chrome.runtime.sendMessage(exId, { meta: 'cacheProjectLocally', lsId, scratchId, json: vm.toJSON(), version: lsVersion });
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'cacheProjectLocally', lsId, scratchId, json: vm.toJSON(), version: lsVersion });
     } catch (error) { console.error('Could not prepare local CoBlocks recovery snapshot:', error); }
 }
 
@@ -208,7 +208,7 @@ async function onTabLoad() {
     addButtonInjectors();
     lsId = isNaN(parseFloat(location.pathname.split('/')[2])) ? '' : await getCoBlocksProjectId(scratchId); //todo: should this use the result of the getLsId function, or a more specific endpoint to authenticating project joining?
     if (!lsId) {
-        chrome.runtime.sendMessage(exId, { meta: 'callback' }, (request) => {
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'callback' }, (request) => {
             if (request.meta === 'initCoBlocks') {
                 lsId = request.lsId;
                 startCoBlocks(true);
@@ -234,7 +234,7 @@ async function acceptCollaborationInvite() {
     if (!projectId || !token) return false;
 
     const response = await new Promise(resolve => {
-        chrome.runtime.sendMessage(exId, { meta: 'acceptInvite', id: projectId, token }, resolve);
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'acceptInvite', id: projectId, token }, resolve);
     });
     if (!response?.ok) {
         if (response?.status !== 401) sessionStorage.removeItem(pendingInviteKey);
@@ -304,7 +304,7 @@ async function joinExistingCoBlocks(id) {
 
 function unlinkCoBlocks() {
     if (!confirm('Unlink this Scratch project from CoBlocks? Collaborators will lose access to this copy.')) return;
-    chrome.runtime.sendMessage(exId, { meta: 'leaveScratchId', scratchId });
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'leaveScratchId', scratchId });
     removeCoBlocksButtons();
     coblocksDisabled = true;
     port.disconnect();
@@ -330,20 +330,20 @@ function removeCoBlocksButtons() {
 
 function getCoBlocksProjectId(scratchId) {
     return new Promise((promRes) => {
-        chrome.runtime.sendMessage(exId, { meta: 'getLsId', scratchId }, promRes);
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'getLsId', scratchId }, promRes);
     });
 }
 // function getInpoint(livescratchId) {
-//     return new Promise((res)=>{chrome.runtime.sendMessage(exId,{meta:'getInpoint',lsId:livescratchId},res)})
+//     return new Promise((res)=>{window.coBlocksRuntime.sendMessage(exId,{meta:'getInpoint',lsId:livescratchId},res)})
 // }
 function getJson(livescratchId, currentScratchId) {
-    return new Promise((res) => { chrome.runtime.sendMessage(exId, { meta: 'getJson', lsId: livescratchId, scratchId: currentScratchId }, res); });
+    return new Promise((res) => { window.coBlocksRuntime.sendMessage(exId, { meta: 'getJson', lsId: livescratchId, scratchId: currentScratchId }, res); });
 }
 function getChanges(lsId, version) {
-    return new Promise((res) => { chrome.runtime.sendMessage(exId, { meta: 'getChanges', lsId, version }, res); });
+    return new Promise((res) => { window.coBlocksRuntime.sendMessage(exId, { meta: 'getChanges', lsId, version }, res); });
 }
 function fetchTitle(lsId) {
-    return new Promise((res) => { chrome.runtime.sendMessage(exId, { meta: 'getTitle', lsId }, res); });
+    return new Promise((res) => { window.coBlocksRuntime.sendMessage(exId, { meta: 'getTitle', lsId }, res); });
 }
 
 function setTopbarButtonVisibility() {
@@ -607,8 +607,8 @@ async function activateCoBlocks() {
         if (lastProjectState !== state) { // If state changed
             lastProjectState = store.getState().scratchGui.projectState.loadingState;
             if (state.endsWith('UPDATING')) {
-                chrome.runtime.sendMessage(exId, { meta: 'projectSavedJSON', lsId, scratchId, json: vm.toJSON(), version: lsVersion });
-            // chrome.runtime.sendMessage(exId,{meta:'projectSaved',lsId,scratchId,version:lsVersion})
+                window.coBlocksRuntime.sendMessage(exId, { meta: 'projectSavedJSON', lsId, scratchId, json: vm.toJSON(), version: lsVersion });
+            // window.coBlocksRuntime.sendMessage(exId,{meta:'projectSaved',lsId,scratchId,version:lsVersion})
             }
             try {
                 if (state === 'SHOWING_WITH_ID') {
@@ -2704,9 +2704,9 @@ async function getUserInfo(username) {
 async function getWithPic(user, username = null) {
     if (username !== null && username === 'livescratch') {
         const url = await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage(exId, { meta: 'getUrl', for: '/img/CoBlocksIcon.png' }, (url) => {
-                if (chrome.runtime.lastError) {
-                    reject(chrome.runtime.lastError);
+            window.coBlocksRuntime.sendMessage(exId, { meta: 'getUrl', for: '/img/CoBlocksIcon.png' }, (url) => {
+                if (window.coBlocksRuntime.lastError) {
+                    reject(window.coBlocksRuntime.lastError);
                 } else {
                     resolve(url);
                 }
@@ -2770,7 +2770,7 @@ async function addCollaborator(username) {
     const user = await getUserInfo(username);
     if (!user) { setShareStatus('No Scratch user found.', 'error'); return; }
     setShareStatus(`Adding @${user.username}...`);
-    chrome.runtime.sendMessage(exId, { meta: 'shareWith', 'username': user.username, id: lsId, pk: user.pk }, function (response) {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'shareWith', 'username': user.username, id: lsId, pk: user.pk }, function (response) {
         if (response?.ok) {
             addCollaboratorGUI(user);
             setShareStatus(`@${user.username} can now collaborate.`, 'success');
@@ -2784,7 +2784,7 @@ async function addCollaborator(username) {
 function removeCollaborator(user) {
     if (!confirm(`Remove @${user} from this project?`)) return;
     setShareStatus(`Removing @${user}...`);
-    chrome.runtime.sendMessage(exId, { meta: 'unshareWith', user, id: lsId }, response => {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'unshareWith', user, id: lsId }, response => {
         if (response?.ok) {
             removeCollaboratorGUI(user);
             setShareStatus(`@${user} was removed.`, 'success');
@@ -3072,8 +3072,8 @@ function requestFromBackground(message, timeoutMs = 15000) {
             resolve(response);
         };
         const timeout = setTimeout(() => finish({ ok: false, error: 'The CoBlocks server did not respond. Try again.' }), timeoutMs);
-        chrome.runtime.sendMessage(exId, message, response => {
-            if (chrome.runtime.lastError) {
+        window.coBlocksRuntime.sendMessage(exId, message, response => {
+            if (window.coBlocksRuntime.lastError) {
                 finish({ ok: false, error: 'CoBlocks could not contact the extension. Reload the editor and try again.' });
                 return;
             }
@@ -3410,14 +3410,14 @@ function updateCollaboratorSummary(onlineUsers = null) {
 
 function refreshCollaborationPresence() {
     if (!lsId) return;
-    chrome.runtime.sendMessage(exId, { meta: 'getActive', id: lsId }, response => {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'getActive', id: lsId }, response => {
         if (Array.isArray(response)) updateCollaboratorSummary(response);
     });
 }
 
 async function copyCollaborationInvite() {
     setShareStatus('Creating invite...');
-    chrome.runtime.sendMessage(exId, { meta: 'createInvite', id: lsId }, async response => {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'createInvite', id: lsId }, async response => {
         if (!response?.ok) {
             setShareStatus(response?.error || 'Could not create an invite.', 'error');
             return;
@@ -3427,7 +3427,7 @@ async function copyCollaborationInvite() {
         inviteUrl.searchParams.set('coblocksProject', response.projectId);
         inviteUrl.searchParams.set('coblocksInvite', response.token);
         try {
-            await navigator.clipboard.writeText(inviteUrl.href);
+            await window.coBlocksRuntime.copyText(inviteUrl.href);
             setShareStatus('New invite copied. It expires in 7 days and replaces the previous link.', 'success');
         } catch {
             setShareStatus('Could not copy the invite link.', 'error');
@@ -3438,7 +3438,7 @@ async function copyCollaborationInvite() {
 function revokeCollaborationInvite() {
     if (!confirm('Revoke the current collaboration invite?')) return;
     setShareStatus('Revoking invite...');
-    chrome.runtime.sendMessage(exId, { meta: 'revokeInvite', id: lsId }, response => {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'revokeInvite', id: lsId }, response => {
         setShareStatus(
             response?.ok ? 'Invite revoked.' : response?.error || 'Could not revoke the invite.',
             response?.ok ? 'success' : 'error',
@@ -3450,7 +3450,7 @@ function refreshShareModal(showStatus = false) {
     if (!lsId) { return; }
     if (showStatus) setShareStatus('Refreshing...');
     return new Promise(promRes => {
-        chrome.runtime.sendMessage(exId, { meta: 'getShared', id: lsId }, async (res) => {
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'getShared', id: lsId }, async (res) => {
             if (!Array.isArray(res)) {
                 setShareStatus(res?.error || res?.err || 'Could not load collaborators.', 'error');
                 promRes();
@@ -3662,7 +3662,7 @@ const lsActivateClick = async () => {
 
     const json = vm.toJSON();
 
-    chrome.runtime.sendMessage(exId, { json, meta: 'create', scratchId, title: store.getState().preview.projectInfo.title }, async (response) => {
+    window.coBlocksRuntime.sendMessage(exId, { json, meta: 'create', scratchId, title: store.getState().preview.projectInfo.title }, async (response) => {
         if (response.noauth || response.err) {
             showBlStartError(response.noauth ? 'CoBlocks has not verified your account yet.' : response.err);
             coblocksButton.onclick = lsActivateClick;
@@ -3824,25 +3824,40 @@ function removeCollaboratorPointer(username) {
     collaboratorPointers.delete(key);
 }
 
+function transformPointerPoint(svg, matrix, x, y) {
+    const point = svg.createSVGPoint();
+    point.x = x;
+    point.y = y;
+    return point.matrixTransform(matrix);
+}
+
+function getBlocksPointerContext() {
+    if (store?.getState()?.scratchGui?.editorTab?.activeTabIndex !== 0) return null;
+    const workspace = BL_UTILS.getWorkspace();
+    const svg = workspace?.getParentSvg();
+    const matrix = workspace?.getCanvas()?.getScreenCTM();
+    const metrics = workspace?.getMetrics();
+    const svgMatrix = svg?.getScreenCTM();
+    if (!matrix || !svgMatrix || !metrics || metrics.viewWidth <= 0 || metrics.viewHeight <= 0) return null;
+    const topLeft = transformPointerPoint(svg, svgMatrix, metrics.absoluteLeft, metrics.absoluteTop);
+    const bottomRight = transformPointerPoint(svg, svgMatrix, metrics.absoluteLeft + metrics.viewWidth, metrics.absoluteTop + metrics.viewHeight);
+    return { svg, matrix, rect: { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y } };
+}
+
 function positionCollaboratorPointer(entry) {
     const pointer = entry.pointer;
-    const editorTab = store?.getState()?.scratchGui?.editorTab?.activeTabIndex;
+    const context = getBlocksPointerContext();
     const targetName = vm?.editingTarget && BL_UTILS.targetToName(vm.editingTarget);
-    let x = pointer.x * window.innerWidth;
-    let y = pointer.y * window.innerHeight;
-    let visible = pointer.editorTab === editorTab && pointer.targetName === targetName;
-    if (pointer.space === 'workspace') {
-        const workspace = BL_UTILS.getWorkspace();
-        const rect = workspace?.getParentSvg()?.getBoundingClientRect();
-        visible = visible && !!rect;
-        if (rect) {
-            x = rect.left + pointer.x * workspace.scale + workspace.scrollX;
-            y = rect.top + pointer.y * workspace.scale + workspace.scrollY;
-            visible = visible && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-        }
-    }
-    entry.element.hidden = !visible || !lsId || coblocksDisabled || document.hidden;
-    entry.element.style.transform = `translate(${x}px, ${y}px)`;
+    entry.element.hidden = true;
+    if (!context || pointer.space !== 'workspace' || pointer.editorTab !== 0
+        || pointer.targetName !== targetName || !lsId || coblocksDisabled || document.hidden) return;
+    const { svg, matrix, rect } = context;
+    const point = transformPointerPoint(svg, matrix, pointer.x, pointer.y);
+    if (point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom) return;
+    const layer = document.getElementById('lsCollaboratorPointers');
+    if (layer) layer.style.clipPath = `inset(${Math.max(0, rect.top)}px ${Math.max(0, window.innerWidth - rect.right)}px ${Math.max(0, window.innerHeight - rect.bottom)}px ${Math.max(0, rect.left)}px)`;
+    entry.element.hidden = false;
+    entry.element.style.transform = `translate(${point.x}px, ${point.y}px)`;
 }
 
 function receiveCollaboratorPointer(username, pointer) {
@@ -3881,16 +3896,21 @@ function startCollaboratorPointers() {
     const sendPointer = () => {
         timer = null;
         if (!lsId || coblocksDisabled || !readyToRecieveChanges || !isConnected) return;
-        const pointer = { visible: !!lastEvent && !document.hidden && document.hasFocus() };
-        if (pointer.visible) {
-            const workspace = BL_UTILS.getWorkspace();
-            const svg = workspace?.getParentSvg();
-            const rect = svg?.getBoundingClientRect();
-            const onWorkspace = rect && svg.contains(lastEvent.target) && workspace.scale > 0;
-            pointer.space = onWorkspace ? 'workspace' : 'editor';
-            pointer.x = onWorkspace ? (lastEvent.x - rect.left - workspace.scrollX) / workspace.scale : lastEvent.x / window.innerWidth;
-            pointer.y = onWorkspace ? (lastEvent.y - rect.top - workspace.scrollY) / workspace.scale : lastEvent.y / window.innerHeight;
-            pointer.editorTab = store.getState().scratchGui.editorTab.activeTabIndex;
+        const context = getBlocksPointerContext();
+        const hit = lastEvent && document.elementFromPoint(lastEvent.x, lastEvent.y);
+        const rect = context?.rect;
+        const visible = !!(lastEvent && context && hit && !document.hidden && document.hasFocus()
+            && context.svg.contains(hit)
+            && !hit.closest('.blocklyFlyout, .blocklyToolboxDiv, .blocklyZoom, .blocklyScrollbarHorizontal, .blocklyScrollbarVertical, .blocklyTrash')
+            && lastEvent.x >= rect.left && lastEvent.x <= rect.right
+            && lastEvent.y >= rect.top && lastEvent.y <= rect.bottom);
+        const pointer = { visible };
+        if (visible) {
+            const point = transformPointerPoint(context.svg, context.matrix.inverse(), lastEvent.x, lastEvent.y);
+            pointer.space = 'workspace';
+            pointer.x = point.x;
+            pointer.y = point.y;
+            pointer.editorTab = 0;
             pointer.targetName = BL_UTILS.targetToName(vm.editingTarget);
         }
         liveMessage({ type: 'pointer', pointer });
@@ -4056,7 +4076,7 @@ function displayActive(users) {
 
 lsCursors = null;
 function reloadOnlineUsers() {
-    chrome.runtime.sendMessage(exId, { meta: 'getActive', id: lsId }, (res) => {
+    window.coBlocksRuntime.sendMessage(exId, { meta: 'getActive', id: lsId }, (res) => {
         if (Array.isArray(res)) updateCollaboratorSummary(res);
         if (JSON.stringify(lsCursors) === JSON.stringify(res)) { return; }
         lsCursors = res;
@@ -4519,7 +4539,7 @@ function addChat() {
         chatbox.style.display = 'none';
 
         //// get own username, then populate chat history
-        chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
             uname = userData.uname;
             const token = userData.currentCoBlocksToken;
             fetch(apiUrl + '/chat/' + lsId, { headers: { uname, authorization: token } }).then(async res => {
@@ -4722,8 +4742,8 @@ async function addMessage(msg, notif) {
 
 function isPingEnabled() {
     return new Promise(ret =>
-        chrome.runtime.sendMessage(exId, { meta: 'isPingEnabled' }, enabled => {
-            ret(!chrome.runtime.lastError && enabled === true);
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'isPingEnabled' }, enabled => {
+            ret(!window.coBlocksRuntime.lastError && enabled === true);
         }),
     );
 }

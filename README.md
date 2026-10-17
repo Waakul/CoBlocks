@@ -50,10 +50,30 @@ npm test
 
 ### Extension
 
+The same `extension` folder works in Chrome 121+, Brave, Edge, and Firefox 140+.
+
+For Chrome, Brave, and Edge:
+
 1. Open your browser's extensions page.
 2. Enable developer mode.
 3. Choose **Load unpacked** and select the `extension` folder.
 4. Open Scratch and use the CoBlocks popup to sign in.
+
+For Firefox:
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Choose **Load Temporary Add-on** and select the same `extension/manifest.json`.
+3. Allow access to Scratch and the CoBlocks API when Firefox asks, then sign in through the popup.
+
+Temporary Firefox add-ons are removed when Firefox restarts; permanent installation requires a Mozilla-signed package.
+
+To copy the shared package into `dist/coblocks`, run:
+
+```sh
+node scripts/build-extension.mjs
+```
+
+Both browsers use the same manifest, collaboration code, and assets. Chrome loads the service worker; Firefox loads the background scripts. The content-script bridge handles Firefox's page messaging. Generated builds stay out of Git.
 
 ## Project structure
 
