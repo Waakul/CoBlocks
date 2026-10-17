@@ -611,7 +611,7 @@ header #switch-theme { top: 10px; right: 10px; width: 38px; height: 38px; paddin
 #contents::-webkit-scrollbar { width: 8px; }
 #contents::-webkit-scrollbar-track { background: transparent; }
 #contents::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(20,38,77,.3); background-clip: padding-box; }
-#floating-logo, #floating-logo-back { right: 4px; top: 70px; width: 145px; height: 145px; pointer-events: none; }
+#floating-logo, #floating-logo-back { right: 6px; top: 75px; width: 145px; height: 145px; pointer-events: none; }
 #floating-logo { opacity: .28; filter: blur(3px); }
 #floating-logo-back { opacity: .16; filter: blur(16px); }
 #friends-list { width: 100%; margin: 0; padding: 15px; gap: 10px; border: 1px solid var(--Sub); border-radius: 14px; background: var(--Sub-Semi); backdrop-filter: blur(3px); }
