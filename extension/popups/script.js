@@ -336,3 +336,12 @@ pingSoundsToggle.addEventListener('change', event => {
 badgesToggle.addEventListener('change', event => {
     chrome.storage.local.set({ badges: !event.currentTarget.checked });
 });
+
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    const signedOut = Object.entries(changes).some(([key, change]) =>
+        (key.startsWith('lsToken.') || key === 'coblocksAuthUsername') && change.oldValue && !change.newValue,
+    );
+    if (signedOut) location.reload();
+});

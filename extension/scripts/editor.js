@@ -410,6 +410,15 @@ async function activateCoBlocks() {
     /// other things
 
     collaborationListener = async (msg) => {
+        if (msg.meta === 'signedOut') {
+            addCoBlocksNotification({ type: 'error', title: 'Signed out of CoBlocks', message: 'Your session ended. Sign in through the extension popup, then refresh this editor.' });
+            coblocksDisabled = true;
+            readyToRecieveChanges = false;
+            collaboratorPointers.forEach((entry, username) => removeCollaboratorPointer(username));
+            removeCoBlocksButtons();
+            port?.disconnect();
+            return;
+        }
         if (coblocksDisabled) { return; }
         if (msg.meta === 'pointer') {
             receiveCollaboratorPointer(msg.username, msg.pointer);

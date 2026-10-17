@@ -81,7 +81,8 @@
     "storage",
     "cookies",
     "webNavigation",
-    "clipboardWrite"
+    "clipboardWrite",
+    "alarms"
   ],
   "host_permissions": [
     "https://scratch.mit.edu/*",

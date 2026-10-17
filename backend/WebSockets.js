@@ -31,16 +31,18 @@ export default class SocketServer {
     joinSession(data, client) {
         if (!this.requireProjectAccess(data.username, data.token, data.id, client)) return;
         if (!this.sessionManager.join(client, data.id, data.username)) {
-            client.send({ noauth: true });
+            client.send({ noaccess: true, id: data.id });
             return;
         }
+        client.data ||= {};
+        client.data.coblocksToken = data.token;
         this.saveProfileId(data.username, data.pk);
     }
 
     joinSessions(data, client) {
         if (!Array.isArray(data.ids)) return;
         if (!authenticate(data.username, data.token)) {
-            client.send({ noauth: true });
+            client.send({ noauth: true, token: data.token });
             return;
         }
 
@@ -51,7 +53,11 @@ export default class SocketServer {
                 joined = true;
             }
         }
-        if (joined) this.saveProfileId(data.username, data.pk);
+        if (joined) {
+            client.data ||= {};
+            client.data.coblocksToken = data.token;
+            this.saveProfileId(data.username, data.pk);
+        }
     }
 
     leaveSession(data, client) {
@@ -176,13 +182,13 @@ export default class SocketServer {
 
     requireJoinedIdentity(client, projectId, username) {
         if (this.socketJoinedAs(client, projectId, username)) return true;
-        client.send({ noauth: true });
+        client.send({ noaccess: true, id: projectId });
         return false;
     }
 
     requireProjectAccess(username, token, projectId, client) {
         if (!authenticate(username, token)) {
-            client.send({ noauth: true });
+            client.send({ noauth: true, token });
             return false;
         }
         if (!fullAuthenticate(username, token, projectId)) {

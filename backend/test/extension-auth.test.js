@@ -16,15 +16,19 @@ function authContext(backgroundReady = Promise.resolve(), options = {}) {
     const context = vm.createContext({
         URL, console, apiUrl, backgroundReady, AbortSignal,
         AUTH_USERNAME_KEY: 'coblocksAuthUsername',
+        AUTH_COMPLETION_KEY: 'coblocksAuthCompletion',
+        credentialResetPromise: null, credentialVersion: 0,
         currentCoBlocksToken: null,
         loginState: null, loginTabId: null, loginInFlight: false, verifying: false,
-        authCompletionPromise: null,
+        authCompletionPromise: null, authCompletionState: null,
         COBLOCKS: {
-            refreshUsername: async () => {},
+            refreshUsername: async () => 'Recipient',
             acceptAuthenticatedUsername: async name => name === 'Recipient',
             onAuthenticated: async () => {},
         },
-        fetch: async () => {
+        getCoBlocksToken: async () => saved['lsToken.recipient'],
+        fetch: async url => {
+            if (url.endsWith('/ack')) return { ok: true };
             finishRequests++;
             return { ok: true, json: async () => ({ username: 'Recipient', token: 'new-token', expiresAt: 123456789 }) };
         },
@@ -32,7 +36,7 @@ function authContext(backgroundReady = Promise.resolve(), options = {}) {
         chrome: {
             storage: {
                 session: { get: async () => { sessionReads++; return { scratchAuthLogin: options.sessionOnly ? pending : null }; } },
-                local: { get: async () => ({ scratchAuthLogin: options.sessionOnly ? null : pending }), set: async values => Object.assign(saved, values) },
+                local: { get: async () => ({ ...saved, scratchAuthLogin: options.sessionOnly ? null : pending }), set: async values => Object.assign(saved, values) },
             },
             runtime: { getURL: path => `chrome-extension://test/${path}` },
             tabs: {

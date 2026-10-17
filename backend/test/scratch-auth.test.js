@@ -84,7 +84,14 @@ test('Scratch Auth issues a persistent 30-day CoBlocks session through a one-tim
 
         const replay = response();
         routes.get('POST /auth/scratch/finish')({ body: { state } }, replay);
-        assert.equal(replay.statusCode, 400);
+        assert.equal(replay.statusCode, 200);
+        assert.equal(replay.body.token, finish.body.token);
+        const acknowledged = response();
+        routes.get('POST /auth/scratch/ack')({ body: { state }, headers: { authorization: finish.body.token } }, acknowledged);
+        assert.equal(acknowledged.statusCode, 204);
+        const afterAck = response();
+        routes.get('POST /auth/scratch/finish')({ body: { state } }, afterAck);
+        assert.equal(afterAck.statusCode, 400);
 
         const logout = response();
         routes.get('POST /auth/logout')({ body: { username: 'Alice' }, headers: { authorization: finish.body.token } }, logout);
@@ -112,7 +119,7 @@ test('Scratch Auth rejects a result for a different redirect', async () => {
     } finally { global.fetch = originalFetch; }
 });
 
-test('parallel sign-ins receive independent sessions and logout revokes only one', async () => {
+test('the newest sign-in revokes older sessions and an old client cannot revoke the new one', async () => {
     process.env.PUBLIC_BASE_URL = 'https://livescratchapi.waakul.com';
     const routes = new Map();
     const app = {
@@ -159,8 +166,12 @@ test('parallel sign-ins receive independent sessions and logout revokes only one
         assert.notEqual(staleFinish.body.token, currentFinish.body.token);
         const logout = response();
         routes.get('POST /auth/logout')({ body: { username: 'Alice' }, headers: { authorization: staleFinish.body.token } }, logout);
-        assert.equal(logout.statusCode, 204);
+        assert.equal(logout.statusCode, 401);
+        assert.equal(Object.keys(users.get('alice').authSessions).length, 1);
         assert.equal(authenticate('Alice', staleFinish.body.token), false);
+        const oldHandoff = response();
+        routes.get('POST /auth/scratch/finish')({ body: { state: firstStart.body.state } }, oldHandoff);
+        assert.equal(oldHandoff.statusCode, 403);
         assert.equal(authenticate('Alice', currentFinish.body.token), true);
         const originalNow = Date.now;
         try {

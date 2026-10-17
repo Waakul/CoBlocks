@@ -540,6 +540,24 @@ export default class SessionManager {
         console.log(username + ' LEFT | lsId: ' + id + ', scratchId: ' + project.scratchId);
     }
 
+    replaceUserSession(username, token) {
+        const sockets = new Map();
+        for (const project of Object.values(this.projects)) {
+            for (const member of Object.values(project.session?.connectedClients || {})) {
+                if (member.username?.toLowerCase() === username.toLowerCase()
+                    && member.socket.data?.coblocksToken !== token) sockets.set(member.socket.id, member.socket);
+            }
+        }
+        for (const socket of sockets.values()) {
+            try {
+                socket.send({ noauth: true, token: socket.data?.coblocksToken, reason: 'You signed in to CoBlocks somewhere else.' });
+            } catch (error) {
+                console.warn('Could not notify a replaced session:', error.message);
+            }
+            this.disconnectSocket(socket);
+        }
+    }
+
     disconnectSocket(socket) {
         if (!(socket.id in this.socketMap)) { return; }
         this.socketMap[socket.id].projects.forEach(projectId => { this.leave(socket, projectId, true); });

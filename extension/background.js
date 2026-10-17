@@ -229,7 +229,10 @@ async function backgroundScript() {
         if (socket.connected && ids.length) socket.send({ type: 'joinSessions', username: uname, pk: upk, ids, token: currentCoBlocksToken });
     };
 
-    COBLOCKS.onLoggedOut = () => {
+    COBLOCKS.onLoggedOut = ({ pendingLogin = false } = {}) => {
+        if (!pendingLogin) ports.forEach(port => {
+            try { port.postMessage({ meta: 'signedOut' }); } catch (error) { console.warn(error.message); }
+        });
         Object.keys(projectPorts).forEach(id => {
             if (socket.connected) socket.send({ type: 'leaveSession', id });
         });
@@ -411,7 +414,8 @@ async function backgroundScript() {
     });
     socket.on('message', (data) => {
         if (data?.noauth === true) {
-            clearRejectedCredentials().catch(error => console.error('Could not clear rejected CoBlocks credentials:', error));
+            if ('token' in data && data.token !== currentCoBlocksToken) return;
+            clearRejectedCredentials(data.reason).catch(error => console.error('Could not clear rejected CoBlocks credentials:', error));
             return;
         }
         if (data.type === 'projectChange') {
@@ -532,7 +536,7 @@ async function backgroundScript() {
     COBLOCKS.refreshUsername = refreshUsername;
     COBLOCKS.acceptAuthenticatedUsername = async username => {
         if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{3,20}$/.test(username)) return false;
-        if (uname !== '*' && uname.toLowerCase() !== username.toLowerCase()) return false;
+        if (!uname || uname === '*' || uname.toLowerCase() !== username.toLowerCase()) return false;
         uname = username;
         signedin = true;
         await chrome.storage.local.set({ uname });

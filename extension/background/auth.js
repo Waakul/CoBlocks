@@ -8,9 +8,12 @@ let loginState = null;
 let loginInFlight = false;
 let credentialResetPromise = null;
 let authCompletionPromise = null;
+let authCompletionState = null;
+let credentialVersion = 0;
 const endVerifyCallbacks = [];
 const startVerifyCallbacks = [];
 const AUTH_USERNAME_KEY = 'coblocksAuthUsername';
+const AUTH_COMPLETION_KEY = 'coblocksAuthCompletion';
 
 async function getCoBlocksToken(username) {
     if (!username || username === '*') return null;
@@ -25,6 +28,7 @@ async function getCoBlocksToken(username) {
 }
 
 async function clearCurrentCoBlocksToken({ clearAllTokens = false } = {}) {
+    credentialVersion++;
     const rejectedToken = currentCoBlocksToken;
     const stored = await chrome.storage.local.get(null);
     const matchingTokenKeys = Object.entries(stored)
@@ -38,11 +42,12 @@ async function clearCurrentCoBlocksToken({ clearAllTokens = false } = {}) {
             `lsTokenExpiresAt.${username.toLowerCase()}`,
         );
     }
-    await chrome.storage.local.remove([...new Set([...matchingTokenKeys, AUTH_USERNAME_KEY])]);
+    await chrome.storage.local.remove([...new Set([...matchingTokenKeys, AUTH_USERNAME_KEY, AUTH_COMPLETION_KEY])]);
     currentCoBlocksToken = null;
 }
 
 async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
+    const version = credentialVersion;
     const scratchUsername = uname;
     if (!scratchUsername || scratchUsername === '*') {
         currentCoBlocksToken = null;
@@ -50,6 +55,7 @@ async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
     }
 
     const stored = await chrome.storage.local.get(AUTH_USERNAME_KEY);
+    if (version !== credentialVersion || scratchUsername !== uname) return currentCoBlocksToken;
     const authenticatedUsername = stored[AUTH_USERNAME_KEY];
     if (authenticatedUsername && typeof authenticatedUsername !== 'string') {
         await clearRejectedCredentials('The saved CoBlocks login was invalid. Sign in again.', { clearAllTokens: true });
@@ -66,6 +72,7 @@ async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
     }
 
     const token = await getCoBlocksToken(scratchUsername);
+    if (version !== credentialVersion || scratchUsername !== uname) return currentCoBlocksToken;
     currentCoBlocksToken = token;
     if (!token) {
         if (authenticatedUsername) await chrome.storage.local.remove(AUTH_USERNAME_KEY);
@@ -81,6 +88,7 @@ async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
             body: JSON.stringify({ username: scratchUsername }),
         });
         const data = await response.json().catch(() => ({}));
+        if (version !== credentialVersion || scratchUsername !== uname || currentCoBlocksToken !== token) return currentCoBlocksToken;
         const verifiedUsername = typeof data.username === 'string' ? data.username : null;
         if (response.status === 401
             || data.noauth === true
@@ -122,33 +130,36 @@ async function clearRejectedCredentials(
 ) {
     if (credentialResetPromise) return credentialResetPromise;
     credentialResetPromise = (async () => {
+        const preserveLogin = loginInFlight || verifying || !!await getPendingScratchAuth();
         await Promise.all([
             clearCurrentCoBlocksToken({ clearAllTokens }),
             clearBackendAuthCookies(),
-            chrome.storage.session.remove('scratchAuthLogin'),
-            chrome.storage.local.remove('scratchAuthLogin'),
         ]);
-        verifying = false;
-        verifyError = reason;
-        loginInFlight = false;
-        loginTabId = null;
-        loginState = null;
+        const keepLogin = preserveLogin || loginInFlight || verifying;
+        if (!keepLogin) {
+            verifying = false;
+            verifyError = reason;
+            loginInFlight = false;
+            loginTabId = null;
+            loginState = null;
+        }
         try {
-            COBLOCKS.onLoggedOut?.();
+            COBLOCKS.onLoggedOut?.({ pendingLogin: keepLogin });
         } catch (error) {
             console.warn('Could not leave active CoBlocks sessions after credential rejection:', error);
         }
-        endVerifyCallbacks.splice(0).forEach(callback => callback?.(false, reason));
+        if (!keepLogin) endVerifyCallbacks.splice(0).forEach(callback => callback?.(false, reason));
     })().finally(() => { credentialResetPromise = null; });
     return credentialResetPromise;
 }
 
 async function authenticatedFetch(input, init = {}) {
+    const requestToken = init.headers?.authorization || init.headers?.Authorization || init.headers?.get?.('authorization');
     const response = await fetch(input, { ...init, credentials: 'omit' });
     try {
         const contentType = response.headers.get('content-type') || '';
         const body = contentType.includes('application/json') ? await response.clone().json() : null;
-        if (body?.noauth === true) await clearRejectedCredentials();
+        if (body?.noauth === true && requestToken && requestToken === currentCoBlocksToken) await clearRejectedCredentials();
     } catch (error) {
         console.warn('Could not inspect a CoBlocks authentication response:', error);
     }
@@ -184,15 +195,20 @@ async function logoutCoBlocks({ waitForServer = true } = {}) {
     return { success: true };
 }
 
-function finishVerification(success, error = null) {
+async function finishVerification(success, error = null, finishedState = loginState) {
+    const pending = await getPendingScratchAuth();
+    if (finishedState && pending?.state && pending.state !== finishedState) return;
+    if (finishedState && pending?.state === finishedState) {
+        await Promise.all([chrome.storage.session.remove('scratchAuthLogin'), chrome.storage.local.remove('scratchAuthLogin')]);
+    }
     verifying = false;
     verifyError = error;
     loginInFlight = false;
-    Promise.all([chrome.storage.session.remove('scratchAuthLogin'), chrome.storage.local.remove('scratchAuthLogin')])
-        .catch(error => console.warn('Could not clear completed login state:', error));
     loginTabId = null;
     loginState = null;
-    endVerifyCallbacks.splice(0).forEach(callback => callback?.(success));
+    endVerifyCallbacks.splice(0).forEach(callback => {
+        try { callback?.(success); } catch (callbackError) { console.warn('A sign-in listener disconnected:', callbackError.message); }
+    });
 }
 
 async function beginScratchAuth() {
@@ -200,6 +216,7 @@ async function beginScratchAuth() {
     loginInFlight = true;
     verifying = true;
     verifyError = null;
+    let startedState = null;
     try {
         await backgroundReady;
         await COBLOCKS.refreshUsername(true);
@@ -210,6 +227,7 @@ async function beginScratchAuth() {
         const data = await response.json();
         if (!response.ok || !data.url || !data.state) throw new Error(data.err || 'Could not start Scratch Auth.');
         loginState = data.state;
+        startedState = data.state;
         const tab = await chrome.tabs.create({ url: 'about:blank' });
         loginTabId = tab.id;
         await chrome.storage.local.set({ scratchAuthLogin: { state: loginState, tabId: loginTabId, apiUrl, createdAt: Date.now() } });
@@ -217,7 +235,7 @@ async function beginScratchAuth() {
         startVerifyCallbacks.splice(0).forEach(callback => callback?.());
         return { started: true };
     } catch (error) {
-        finishVerification(false, error.message);
+        await finishVerification(false, error.message, startedState);
         return { err: error.message };
     }
 }
@@ -233,7 +251,47 @@ async function getPendingScratchAuth() {
     return pending;
 }
 
+async function showScratchAuthSuccess(tabId, username) {
+    const successUrl = new URL(chrome.runtime.getURL('auth/success.html'));
+    successUrl.searchParams.set('username', username);
+    try {
+        await chrome.tabs.update(tabId, { url: successUrl.href });
+    } catch (error) {
+        console.error('Signed in, but could not show the success page:', error);
+    }
+}
+
+async function exchangeScratchAuthToken(state) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        let response;
+        try {
+            response = await fetch(`${apiUrl}/auth/scratch/finish`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ state }), signal: AbortSignal.timeout(15_000),
+            });
+        } catch (error) {
+            if (attempt === 0) continue;
+            throw error;
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            if (attempt === 0 && response.status >= 500) continue;
+            throw new Error(data.err || 'The server could not finish sign-in.');
+        }
+        return data;
+    }
+}
+
 async function completeScratchAuth(tabId, url) {
+    const requestedState = new URL(url).searchParams.get('state');
+    const saved = await chrome.storage.local.get([AUTH_COMPLETION_KEY, AUTH_USERNAME_KEY]);
+    const completed = saved[AUTH_COMPLETION_KEY];
+    if (completed?.state === requestedState && completed.apiUrl === apiUrl
+        && Date.now() - completed.completedAt < 5 * 60_000
+        && saved[AUTH_USERNAME_KEY] === completed.username && await getCoBlocksToken(completed.username)) {
+        await showScratchAuthSuccess(tabId, completed.username);
+        return { ok: true };
+    }
     const stored = await getPendingScratchAuth();
     if (!stored || stored.apiUrl !== apiUrl) return { ok: false, error: 'This login has expired or was cancelled. Start sign-in again from the CoBlocks popup.' };
     const completionUrl = new URL(url);
@@ -244,42 +302,58 @@ async function completeScratchAuth(tabId, url) {
     loginTabId = tabId;
     loginInFlight = true;
     verifying = true;
-    const requestedState = loginState;
-    loginState = null; // consume locally before the HTTP request
+    loginState = null; // Completion is serialized by authCompletionPromise.
+    let issuedSession = null;
+    let sessionSaved = false;
     try {
-        await COBLOCKS.refreshUsername(true);
-        const response = await fetch(`${apiUrl}/auth/scratch/finish`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state: requestedState }),
-            signal: AbortSignal.timeout(15_000),
-        });
-        const data = await response.json();
-        if (!response.ok || !data.username || !data.token) throw new Error(data.err || 'Login failed.');
+        const scratchUsername = await COBLOCKS.refreshUsername(true);
+        if (!scratchUsername || scratchUsername === '*') throw new Error('Sign in to Scratch before connecting CoBlocks.');
+        const data = await exchangeScratchAuthToken(requestedState);
+        if (typeof data.username !== 'string' || typeof data.token !== 'string' || !data.token) throw new Error('Invalid sign-in response from the server.');
+        issuedSession = data;
         if (!await COBLOCKS.acceptAuthenticatedUsername?.(data.username)) {
             throw new Error('Scratch Auth account does not match the current Scratch account.');
         }
+        if (credentialResetPromise) await credentialResetPromise;
+        const pending = await getPendingScratchAuth();
+        if (pending?.state !== requestedState) throw new Error('This sign-in was cancelled. Start again from the CoBlocks popup.');
+        credentialVersion++;
+        currentCoBlocksToken = data.token;
         await chrome.storage.local.set({
+            [AUTH_COMPLETION_KEY]: { state: requestedState, username: data.username, apiUrl, completedAt: Date.now() },
             [`lsToken.${data.username.toLowerCase()}`]: data.token,
             [AUTH_USERNAME_KEY]: data.username,
             ...(Number.isFinite(data.expiresAt) ? { [`lsTokenExpiresAt.${data.username.toLowerCase()}`]: data.expiresAt } : {}),
         });
-        currentCoBlocksToken = data.token;
+        sessionSaved = true;
         try {
             await COBLOCKS.onAuthenticated?.();
         } catch (error) {
             console.warn('Signed in, but could not refresh active projects:', error);
         }
-        finishVerification(true);
-        const successUrl = new URL(chrome.runtime.getURL('auth/success.html'));
-        successUrl.searchParams.set('username', data.username);
-        try {
-            await chrome.tabs.update(tabId, { url: successUrl.href });
-        } catch (navigationError) {
-            console.error('Signed in, but could not show the success page:', navigationError);
-        }
+        await finishVerification(true, null, requestedState);
+        await showScratchAuthSuccess(tabId, data.username);
+        fetch(`${apiUrl}/auth/scratch/ack`, {
+            method: 'POST',
+            headers: { authorization: data.token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: requestedState }),
+            signal: AbortSignal.timeout(5000),
+        }).catch(error => console.warn('Could not acknowledge Scratch Auth completion:', error.message));
         return { ok: true };
     } catch (error) {
-        finishVerification(false, error.message);
+        if (issuedSession && !sessionSaved) {
+            if (currentCoBlocksToken === issuedSession.token) {
+                credentialVersion++;
+                currentCoBlocksToken = null;
+            }
+            fetch(`${apiUrl}/auth/logout`, {
+                method: 'POST',
+                headers: { authorization: issuedSession.token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: issuedSession.username }),
+                signal: AbortSignal.timeout(5000),
+            }).catch(revokeError => console.warn('Could not revoke an unused sign-in token:', revokeError.message));
+        }
+        await finishVerification(false, error.message, requestedState);
         return { ok: false, error: error.message };
     }
 }
@@ -292,15 +366,25 @@ async function handleScratchAuthCompletion(tabId, url) {
     await backgroundReady;
     const expectedUrl = new URL(`${apiUrl}/auth/scratch/complete`);
     if (parsedUrl.origin !== expectedUrl.origin || parsedUrl.pathname !== expectedUrl.pathname) return;
-    if (authCompletionPromise) return authCompletionPromise;
-    authCompletionPromise = completeScratchAuth(tabId, url).finally(() => { authCompletionPromise = null; });
+    const state = parsedUrl.searchParams.get('state');
+    if (!state) return { ok: false, error: 'The sign-in callback is missing its state.' };
+    if (authCompletionPromise) {
+        if (authCompletionState === state) return authCompletionPromise;
+        await authCompletionPromise;
+        return handleScratchAuthCompletion(tabId, url);
+    }
+    authCompletionState = state;
+    authCompletionPromise = completeScratchAuth(tabId, url).finally(() => {
+        authCompletionPromise = null;
+        authCompletionState = null;
+    });
     return authCompletionPromise;
 }
 
 function observeScratchAuthCompletion(tabId, url) {
     handleScratchAuthCompletion(tabId, url).catch(error => {
         console.error('Could not complete Scratch Auth:', error);
-        finishVerification(false, error.message);
+        verifyError = error.message;
     });
 }
 
@@ -323,8 +407,10 @@ async function resumeScratchAuth() {
 }
 
 
-chrome.tabs.onRemoved.addListener(tabId => {
-    if (tabId === loginTabId && verifying) finishVerification(false, 'Login was cancelled.');
+chrome.tabs.onRemoved.addListener(async tabId => {
+    if (tabId !== loginTabId || !verifying) return;
+    const pending = await getPendingScratchAuth();
+    await finishVerification(false, 'Login was cancelled.', pending?.state);
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -381,3 +467,13 @@ function handleVerificationRequest(request, sender, sendResponse) {
 }
 chrome.runtime.onMessageExternal.addListener(handleVerificationRequest);
 chrome.runtime.onMessage.addListener(handleVerificationRequest);
+
+
+if (chrome.alarms) {
+    chrome.alarms.create('coblocks-session-check', { periodInMinutes: 1 });
+    chrome.alarms.onAlarm.addListener(async alarm => {
+        if (alarm.name !== 'coblocks-session-check') return;
+        await backgroundReady;
+        if (uname && uname !== '*') await getCurrentCoBlocksTokenAfterUsernameRefresh();
+    });
+}

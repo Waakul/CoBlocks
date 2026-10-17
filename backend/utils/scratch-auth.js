@@ -127,27 +127,49 @@ export function setPaths(app, users, sessions) {
 
     app.get('/auth/scratch/complete', (req, res) => {
         const item = pending.get(req.query.state);
-        if (!item || item.status !== 'complete') return res.status(400).send('This CoBlocks login is incomplete or expired.');
+        if (!item || !['complete', 'issued'].includes(item.status) || Date.now() - item.createdAt > TTL) return res.status(400).send('This CoBlocks login is incomplete or expired.');
         res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>CoBlocks login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Finishing CoBlocks sign-in</h1><p>Keep this tab open while the extension saves your login. You will be redirected when it is ready.</p></body></html>');
     });
 
     app.post('/auth/scratch/finish', (req, res) => {
         const item = pending.get(req.body?.state);
-        if (!item || item.status !== 'complete' || Date.now() - item.createdAt > TTL) return res.status(400).json({ err: 'Login is incomplete or expired.' });
+        if (!item || !['complete', 'issued'].includes(item.status) || Date.now() - item.createdAt > TTL) return res.status(400).json({ err: 'Login is incomplete or expired.' });
         const user = userManager.findUser(item.username);
         if (!user?.verified) return res.status(403).json({ err: 'Please sign in again.' });
+        if (item.status === 'issued') {
+            if (!authenticate(item.username, item.token)) return res.status(403).json({ err: 'This login was revoked. Please sign in again.' });
+            return res.json({ username: user.username, token: item.token, expiresAt: item.expiresAt });
+        }
         const token = createToken();
         const now = Date.now();
         const expiresAt = now + SESSION_LIFETIME_MS;
         const previousSessions = user.authSessions;
-        user.authSessions = Object.fromEntries(Object.entries(previousSessions || {}).filter(([, session]) => session && Number.isFinite(session.expiresAt) && session.expiresAt > now));
-        user.authSessions[tokenHash(token)] = { createdAt: now, expiresAt };
+        const previousToken = user.token;
+        const previousExpiry = user.tokenExpiresAt;
+        user.authSessions = { [tokenHash(token)]: { createdAt: now, expiresAt } };
+        user.token = createToken();
+        user.tokenExpiresAt = 0;
         if (!userManager.persistUser(item.username)) {
             user.authSessions = previousSessions;
+            user.token = previousToken;
+            user.tokenExpiresAt = previousExpiry;
             return res.status(500).json({ err: 'Could not save the login session. Please try again.' });
         }
-        pending.delete(req.body.state);
+        sessionManager.replaceUserSession?.(user.username, token);
+        item.status = 'issued';
+        item.token = token;
+        item.expiresAt = expiresAt;
         res.json({ username: user.username, token, expiresAt });
+    });
+
+    app.post('/auth/scratch/ack', (req, res) => {
+        const item = pending.get(req.body?.state);
+        if (!item || item.status !== 'issued' || Date.now() - item.createdAt > TTL) return res.status(400).json({ err: 'Login handoff expired.' });
+        if (req.headers.authorization !== item.token || !authenticate(item.username, req.headers.authorization)) {
+            return res.status(401).json({ noauth: true });
+        }
+        pending.delete(req.body.state);
+        res.status(204).send();
     });
 
     app.post('/auth/session', (req, res) => {

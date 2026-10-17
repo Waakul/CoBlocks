@@ -77,3 +77,12 @@ async function loadProjects() {
 }
 
 loadProjects();
+
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    const signedOut = Object.entries(changes).some(([key, change]) =>
+        (key.startsWith('lsToken.') || key === 'coblocksAuthUsername') && change.oldValue && !change.newValue,
+    );
+    if (signedOut) location.reload();
+});
