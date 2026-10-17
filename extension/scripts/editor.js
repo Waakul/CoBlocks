@@ -2440,7 +2440,7 @@ const shareCSS = `
 .ls-notification-copy time { color: #8993a5; font-size: 9px; }
 .ls-notification-empty { padding: 34px 16px; color: #768196; font-size: 12px; text-align: center; }
 #lsNotificationToast { position: absolute; top: 44px; right: 8px; z-index: 1090; width: min(300px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border: 1px solid rgba(20,38,77,.14); border-left: 4px solid #e7b326; border-radius: 11px; color: #14264d; background: #fff; box-shadow: 0 12px 34px rgba(20,38,77,.22); font: inherit; text-align: left; cursor: pointer; }
-#lsNotificationToast { box-sizing: border-box; }
+#lsNotificationToast { box-sizing: border-box; touch-action: pan-y; user-select: none; }
 #lsNotificationToast strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #14264d; font-size: 12px; }
 #lsNotificationToast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #53617a; font-size: 11px; line-height: 15px; }
 #lsNotificationToast.is-error { border-left-color: #d33b54; }
@@ -2817,6 +2817,7 @@ function setShareStatus(message, type = '') {
 const coBlocksNotifications = [];
 let coBlocksNotificationUnread = 0;
 let notificationToastTimer;
+let notificationToastAnimation;
 
 function notificationIcon(type) {
     const icons = {
@@ -2867,14 +2868,80 @@ function createNotificationToast() {
     toast.type = 'button';
     toast.hidden = true;
     toast.innerHTML = '<strong></strong><span></span>';
+    let pointerStart = null;
+    let swipeDistance = 0;
+    let suppressClick = false;
+    toast.addEventListener('pointerdown', event => {
+        if (!event.isPrimary || event.button !== 0) return;
+        pointerStart = { x: event.clientX, y: event.clientY, id: event.pointerId };
+        swipeDistance = 0;
+        suppressClick = false;
+        clearTimeout(notificationToastTimer);
+        notificationToastAnimation?.cancel();
+        toast.setPointerCapture(event.pointerId);
+    });
+    toast.addEventListener('pointermove', event => {
+        if (!pointerStart || pointerStart.id !== event.pointerId) return;
+        const dx = event.clientX - pointerStart.x;
+        const dy = event.clientY - pointerStart.y;
+        swipeDistance = dx > Math.abs(dy) ? Math.max(0, dx) : 0;
+        if (swipeDistance > 8) suppressClick = true;
+        toast.style.transform = `translateX(${swipeDistance}px)`;
+        toast.style.opacity = String(Math.max(0.2, 1 - swipeDistance / toast.offsetWidth));
+    });
+    const finishSwipe = event => {
+        if (!pointerStart || pointerStart.id !== event.pointerId) return;
+        pointerStart = null;
+        if (event.type !== 'pointercancel' && swipeDistance >= Math.min(70, toast.offsetWidth / 4)) {
+            suppressClick = true;
+            dismissNotificationToast(true);
+        } else {
+            toast.style.transform = '';
+            toast.style.opacity = '';
+            notificationToastTimer = setTimeout(dismissNotificationToast, 2600);
+        }
+    };
+    toast.addEventListener('pointerup', finishSwipe);
+    toast.addEventListener('pointercancel', finishSwipe);
+    toast.addEventListener('click', event => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }, true);
+    toast.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') suppressClick = false;
+        if (event.key === 'Escape') dismissNotificationToast();
+    });
     return toast;
+}
+
+function dismissNotificationToast(swipe = false) {
+    clearTimeout(notificationToastTimer);
+    const toast = document.querySelector('#lsNotificationToast');
+    if (!toast || toast.hidden) return;
+    notificationToastAnimation?.cancel();
+    const style = getComputedStyle(toast);
+    const animation = toast.animate([
+        { opacity: style.opacity, transform: style.transform },
+        { opacity: 0, transform: swipe ? 'translateX(calc(100% + 16px))' : 'translateY(-8px) scale(.96)' },
+    ], {
+        duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160,
+        easing: 'ease-in',
+        fill: 'forwards',
+    });
+    notificationToastAnimation = animation;
+    animation.finished.then(() => {
+        if (notificationToastAnimation !== animation) return;
+        toast.hidden = true;
+        toast.style.transform = '';
+        toast.style.opacity = '';
+        animation.cancel();
+    }).catch(() => {});
 }
 
 function notificationAction(notification) {
     closeNotificationCenter();
-    clearTimeout(notificationToastTimer);
-    const toast = document.querySelector('#lsNotificationToast');
-    if (toast) toast.hidden = true;
+    dismissNotificationToast();
     if (notification.action === 'chat') {
         const chat = document.querySelector('ls-chat');
         if (chat) {
@@ -2927,13 +2994,23 @@ function showNotificationToast(notification) {
     const toast = document.querySelector('#lsNotificationToast');
     if (!toast || !document.querySelector('#lsNotificationCenter')?.hidden) return;
     clearTimeout(notificationToastTimer);
+    notificationToastAnimation?.cancel();
+    toast.style.transform = '';
+    toast.style.opacity = '';
     toast.className = `is-${notification.type}`;
     toast.title = `${notification.title}\n${notification.message}`;
     toast.querySelector('strong').textContent = notification.title;
     toast.querySelector('span').textContent = notification.message;
     toast.hidden = false;
+    notificationToastAnimation = toast.animate([
+        { opacity: 0, transform: 'translateY(-8px) scale(.96)' },
+        { opacity: 1, transform: 'translateY(0) scale(1)' },
+    ], {
+        duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,
+        easing: 'ease-out',
+    });
     toast.onclick = () => notificationAction(notification);
-    notificationToastTimer = setTimeout(() => { toast.hidden = true; }, 5500);
+    notificationToastTimer = setTimeout(dismissNotificationToast, 2600);
 }
 
 function addCoBlocksNotification({ type = 'success', title, message, action = null }) {
@@ -2970,8 +3047,7 @@ function toggleNotificationCenter() {
         coBlocksNotificationUnread = 0;
         updateNotificationBadge();
         renderNotificationCenter();
-        const toast = document.querySelector('#lsNotificationToast');
-        if (toast) toast.hidden = true;
+        dismissNotificationToast();
     }
 }
 
