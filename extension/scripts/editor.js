@@ -359,7 +359,7 @@ function setTopbarButtonVisibility() {
 let getAndPlayNewChanges;
 
 async function activateCoBlocks() {
-
+    startCollaboratorPointers();
     addChat();
     mountSharedBackpack().catch(error => console.error('Could not mount the CoBlocks backpack:', error));
 
@@ -411,6 +411,10 @@ async function activateCoBlocks() {
 
     collaborationListener = async (msg) => {
         if (coblocksDisabled) { return; }
+        if (msg.meta === 'pointer') {
+            receiveCollaboratorPointer(msg.username, msg.pointer);
+            return;
+        }
         if (typeof BL_UTILS !== 'undefined' && BL_UTILS.isDragging()) {
             // dong add to list if its a move event on the current moving block
             if (msg.meta === 'vm.blockListen' && msg.type === 'move' && msg.event.blockId === BL_UTILS.getDraggingId()) { return; } else { playAfterDragStop.push(msg); }
@@ -459,6 +463,7 @@ async function activateCoBlocks() {
             } else if (msg.meta === 'chat') {
                 addMessage(msg.msg, true);
             } else if (msg.meta === 'presence') {
+                if (msg.action === 'leave') removeCollaboratorPointer(msg.username);
                 const joined = msg.action === 'join';
                 addCoBlocksNotification({
                     type: joined ? 'join' : 'leave',
@@ -2471,35 +2476,25 @@ const shareCSS = `
 
 
 
-.lsActiveName {
-    // visibility: hidden;
-    filter: opacity(0%);
-
-    // background-color: #ff00e6;
-    color: #fff;
-    transition: .2s;
-
-    padding: 5px;
-    border-radius: 6px;
-    display: flex;
-    align-self: center;
-   
-    /* Position the tooltip text - see examples below! */
-    position: absolute;
-    z-index: 1;
-
-  }
-  
-
-  .lsActiveUser:hover ~ .lsActiveName {
-    // visibility: visible;
-    filter: opacity(100%);
-  }
-
-
-
-
-
+#lsUsersPanel { box-sizing: border-box; flex: 0 1 auto; display: flex; align-items: center; gap: 6px; width: calc(80px + var(--ls-online-count, 1) * 110px); min-width: 100px; max-width: 360px; padding: 3px 6px; }
+.ls-online-users { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(var(--ls-online-columns, 1), minmax(0, 1fr)); gap: 4px; max-height: 42px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+.ls-online-users.is-avatars .ls-online-name { display: none; }
+.ls-online-users.is-avatars .ls-online-user { justify-content: center; gap: 0; padding: 2px; border-radius: 6px; }
+.ls-online-users.is-dense { gap: 2px; }
+.ls-online-label { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; padding-right: 3px; color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.ls-online-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #b5f5ce; }
+.ls-online-user { box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: calc(var(--ls-online-avatar-size, 24px) + 6px); min-width: 0; max-width: 132px; padding: 2px 6px 2px 2px; border: 1px solid var(--ls-user-color); border-radius: 9px; color: #14264d; background: var(--ls-user-bg); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; transition: box-shadow .15s ease, background .15s ease; }
+.ls-online-user:hover { background: #fff; box-shadow: inset 0 0 0 1px var(--ls-user-color); }
+.ls-online-user:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.ls-online-avatar { flex: 0 0 var(--ls-online-avatar-size, 24px); width: var(--ls-online-avatar-size, 24px); height: var(--ls-online-avatar-size, 24px); object-fit: cover; border-radius: 6px; background: #fff; }
+.ls-online-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lsOnlineTooltip { position: fixed; z-index: 10000; max-width: min(280px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px; color: #fff; background: #25334d; box-shadow: 0 3px 10px #0003; font: 12px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif; overflow-wrap: anywhere; pointer-events: none; }
+#lsOnlineTooltip[hidden] { display: none; }
+#lsCollaboratorPointers { position: fixed; inset: 0; z-index: 900; overflow: hidden; pointer-events: none; }
+.ls-live-pointer { position: absolute; top: 0; left: 0; pointer-events: none; transition: transform 70ms linear; color: var(--ls-pointer-color); }
+.ls-live-pointer svg { display: block; width: 19px; height: 24px; filter: drop-shadow(0 1px 1px #0003); }
+.ls-live-pointer span { display: block; width: max-content; max-width: 130px; margin: -3px 0 0 14px; padding: 3px 6px; border-radius: 4px; color: #fff; background: var(--ls-pointer-color); font: 700 11px/1.3 "Helvetica Neue", Helvetica, Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .ls-live-pointer { transition: none; } }
 
 // highlight blocks
 
@@ -2815,7 +2810,6 @@ function setShareStatus(message, type = '') {
 }
 
 const coBlocksNotifications = [];
-let coBlocksNotificationUnread = 0;
 let notificationToastTimer;
 let notificationToastAnimation;
 
@@ -2857,6 +2851,7 @@ function createNotificationCenter() {
         <div class="ls-notification-list"></div>`;
     panel.querySelector('.ls-notification-clear').onclick = () => {
         coBlocksNotifications.length = 0;
+        updateNotificationBadge();
         renderNotificationCenter();
     };
     return panel;
@@ -2898,7 +2893,7 @@ function createNotificationToast() {
         } else {
             toast.style.transform = '';
             toast.style.opacity = '';
-            notificationToastTimer = setTimeout(dismissNotificationToast, 2000);
+            notificationToastTimer = setTimeout(dismissNotificationToast, 1600);
         }
     };
     toast.addEventListener('pointerup', finishSwipe);
@@ -2986,8 +2981,9 @@ function renderNotificationCenter() {
 function updateNotificationBadge() {
     const badge = document.querySelector('.ls-notification-badge');
     if (!badge) return;
-    badge.textContent = coBlocksNotificationUnread > 99 ? '99+' : String(coBlocksNotificationUnread);
-    badge.hidden = coBlocksNotificationUnread === 0;
+    const unread = coBlocksNotifications.filter(notification => notification.unread).length;
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+    badge.hidden = unread === 0;
 }
 
 function showNotificationToast(notification) {
@@ -3010,15 +3006,15 @@ function showNotificationToast(notification) {
         easing: 'ease-out',
     });
     toast.onclick = () => notificationAction(notification);
-    notificationToastTimer = setTimeout(dismissNotificationToast, 2000);
+    notificationToastTimer = setTimeout(dismissNotificationToast, 1600);
 }
 
 function addCoBlocksNotification({ type = 'success', title, message, action = null }) {
     if (!title || !message) return;
-    const notification = { type, title, message: String(message), action, time: new Date() };
+    const unread = !(type === 'chat' && isChatOpen());
+    const notification = { type, title, message: String(message), action, time: new Date(), unread };
     coBlocksNotifications.unshift(notification);
     if (coBlocksNotifications.length > 30) coBlocksNotifications.length = 30;
-    coBlocksNotificationUnread++;
     updateNotificationBadge();
     renderNotificationCenter();
     showNotificationToast(notification);
@@ -3044,7 +3040,7 @@ function toggleNotificationCenter() {
     if (opening) {
         if (lsDropdown) lsDropdown.style.display = 'none';
         coblocksButton?.setAttribute('aria-expanded', 'false');
-        coBlocksNotificationUnread = 0;
+        coBlocksNotifications.forEach(notification => { notification.unread = false; });
         updateNotificationBadge();
         renderNotificationCenter();
         dismissNotificationToast();
@@ -3778,19 +3774,11 @@ function addButtonInjectors() {
 
         const panel = document.createElement('div');
         panel.id = 'lsUsersPanel';
-        panel.style = 'display: flex; justify-content: center; align-items: center; gap: 3px; max-width: 300px; overflow: auto;';
+        panel.setAttribute('aria-label', 'Online collaborators');
         topBar.insertBefore(panel, accountInfo);
+        observeOnlinePanel(panel);
         addChatButton();
 
-        const activeText = document.createElement('div');
-        activeText.textContent = 'online:';
-        activeText.style.color = '#104691';
-        activeText.style.background = 'lightblue';
-        activeText.style.padding = '2px';
-        activeText.style.borderRadius = '3px';
-        activeText.style.alignSelf = 'center';
-        activeText.style.marginRight = '10px';
-        panel.appendChild(activeText);
 
         setTopbarButtonVisibility();
         showCachedOnlineUsers();
@@ -3827,102 +3815,243 @@ function revertProject() {
     vm.loadProject(revertJSON);
 }
 
-const COLORS = ['teal', '#c42b63', '#58c198'];
-const COLORS_BRIGHT = ['#00b9d1', '#ff00e6', '#ffc83d'];
-const yo_1 = Math.round(Math.random());
+const collaboratorPointers = new Map();
+let collaboratorPointersStarted = false;
+
+function removeCollaboratorPointer(username) {
+    const key = String(username).toLowerCase();
+    collaboratorPointers.get(key)?.element.remove();
+    collaboratorPointers.delete(key);
+}
+
+function positionCollaboratorPointer(entry) {
+    const pointer = entry.pointer;
+    const editorTab = store?.getState()?.scratchGui?.editorTab?.activeTabIndex;
+    const targetName = vm?.editingTarget && BL_UTILS.targetToName(vm.editingTarget);
+    let x = pointer.x * window.innerWidth;
+    let y = pointer.y * window.innerHeight;
+    let visible = pointer.editorTab === editorTab && pointer.targetName === targetName;
+    if (pointer.space === 'workspace') {
+        const workspace = BL_UTILS.getWorkspace();
+        const rect = workspace?.getParentSvg()?.getBoundingClientRect();
+        visible = visible && !!rect;
+        if (rect) {
+            x = rect.left + pointer.x * workspace.scale + workspace.scrollX;
+            y = rect.top + pointer.y * workspace.scale + workspace.scrollY;
+            visible = visible && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+        }
+    }
+    entry.element.hidden = !visible || !lsId || coblocksDisabled || document.hidden;
+    entry.element.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function receiveCollaboratorPointer(username, pointer) {
+    if (!username || username.toLowerCase() === uname.toLowerCase()) return;
+    if (!pointer?.visible) { removeCollaboratorPointer(username); return; }
+    if (!Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)) return;
+    let layer = document.getElementById('lsCollaboratorPointers');
+    if (!layer) {
+        layer = document.createElement('div');
+        layer.id = 'lsCollaboratorPointers';
+        layer.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(layer);
+    }
+    const key = username.toLowerCase();
+    let entry = collaboratorPointers.get(key);
+    if (!entry) {
+        const element = document.createElement('div');
+        element.className = 'ls-live-pointer';
+        element.style.setProperty('--ls-pointer-color', getCollaboratorColor(username).accent);
+        element.innerHTML = '<svg viewBox="0 0 19 24" fill="currentColor"><path d="M2 1 17 15l-7 1-4 6Z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg><span></span>';
+        element.querySelector('span').textContent = username;
+        layer.appendChild(element);
+        entry = { element };
+        collaboratorPointers.set(key, entry);
+    }
+    entry.pointer = pointer;
+    entry.updatedAt = Date.now();
+    positionCollaboratorPointer(entry);
+}
+
+function startCollaboratorPointers() {
+    if (collaboratorPointersStarted) return;
+    collaboratorPointersStarted = true;
+    let lastEvent = null;
+    let timer = null;
+    const sendPointer = () => {
+        timer = null;
+        if (!lsId || coblocksDisabled || !readyToRecieveChanges || !isConnected) return;
+        const pointer = { visible: !!lastEvent && !document.hidden && document.hasFocus() };
+        if (pointer.visible) {
+            const workspace = BL_UTILS.getWorkspace();
+            const svg = workspace?.getParentSvg();
+            const rect = svg?.getBoundingClientRect();
+            const onWorkspace = rect && svg.contains(lastEvent.target) && workspace.scale > 0;
+            pointer.space = onWorkspace ? 'workspace' : 'editor';
+            pointer.x = onWorkspace ? (lastEvent.x - rect.left - workspace.scrollX) / workspace.scale : lastEvent.x / window.innerWidth;
+            pointer.y = onWorkspace ? (lastEvent.y - rect.top - workspace.scrollY) / workspace.scale : lastEvent.y / window.innerHeight;
+            pointer.editorTab = store.getState().scratchGui.editorTab.activeTabIndex;
+            pointer.targetName = BL_UTILS.targetToName(vm.editingTarget);
+        }
+        liveMessage({ type: 'pointer', pointer });
+    };
+    document.addEventListener('pointermove', event => {
+        if (!event.isPrimary) return;
+        lastEvent = { x: event.clientX, y: event.clientY, target: event.target };
+        if (!timer) timer = setTimeout(sendPointer, 50);
+    }, { passive: true });
+    const hidePointer = () => { lastEvent = null; sendPointer(); };
+    document.documentElement.addEventListener('pointerleave', hidePointer);
+    window.addEventListener('blur', hidePointer);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) hidePointer(); });
+    setInterval(() => { if (lastEvent) sendPointer(); }, 2000);
+    setInterval(() => {
+        for (const [username, entry] of collaboratorPointers) {
+            if (Date.now() - entry.updatedAt > 8000) removeCollaboratorPointer(username);
+            else positionCollaboratorPointer(entry);
+        }
+    }, 200);
+}
+
+const collaboratorColors = [
+    { accent: '#3278b8', background: '#e8f3ff' },
+    { accent: '#9460b8', background: '#f3ebfc' },
+    { accent: '#24846b', background: '#e5f6ef' },
+    { accent: '#bd597c', background: '#fcebf1' },
+    { accent: '#a57523', background: '#fff4d6' },
+    { accent: '#487e92', background: '#e8f5f8' },
+];
+
+function getCollaboratorColor(username) {
+    let hash = 0;
+    for (const character of String(username).toLowerCase()) {
+        hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+    }
+    return collaboratorColors[hash % collaboratorColors.length];
+}
+
+function getOnlineUserLayout(count, width) {
+    const cardWidth = (width - Math.max(0, count - 1) * 4) / Math.max(1, count);
+    if (cardWidth >= 64) return { avatarsOnly: false, columns: count || 1, avatarSize: 24, dense: false };
+    if (cardWidth >= 20) return { avatarsOnly: true, columns: count || 1, avatarSize: Math.min(24, Math.floor(cardWidth - 6)), dense: false };
+    const columns = Math.max(1, Math.min(Math.ceil(count / 2), Math.floor((width + 2) / 20)));
+    const avatarSize = Math.max(12, Math.min(14, Math.floor((width - (columns - 1) * 2) / columns - 6)));
+    return { avatarsOnly: true, columns, avatarSize, dense: true };
+}
+
+function layoutOnlineUsers(panel) {
+    const cards = panel.querySelector('.ls-online-users');
+    if (!cards || !cards.clientWidth) return;
+    const layout = getOnlineUserLayout(cards.children.length, cards.clientWidth);
+    cards.classList.toggle('is-avatars', layout.avatarsOnly);
+    cards.classList.toggle('is-dense', layout.dense);
+    cards.style.setProperty('--ls-online-columns', layout.columns);
+    cards.style.setProperty('--ls-online-avatar-size', `${layout.avatarSize}px`);
+}
+
+let onlinePanelResizeObserver;
+function observeOnlinePanel(panel) {
+    onlinePanelResizeObserver?.disconnect();
+    onlinePanelResizeObserver = new ResizeObserver(() => layoutOnlineUsers(panel));
+    onlinePanelResizeObserver.observe(panel);
+}
+
+function showOnlineUserTooltip(card, text) {
+    let tooltip = document.getElementById('lsOnlineTooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'lsOnlineTooltip';
+        tooltip.setAttribute('role', 'tooltip');
+        document.body.appendChild(tooltip);
+    }
+    tooltip.textContent = text;
+    tooltip.hidden = false;
+    const rect = card.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - tooltip.offsetWidth - 8))}px`;
+    tooltip.style.top = `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - tooltip.offsetHeight - 8))}px`;
+    card.setAttribute('aria-describedby', tooltip.id);
+}
+
+function hideOnlineUserTooltip() {
+    const tooltip = document.getElementById('lsOnlineTooltip');
+    if (tooltip) tooltip.hidden = true;
+}
 
 function clearActive() {
-    if (!document.getElementById('lsUsersPanel')) { return; }
-    document.getElementById('lsUsersPanel').innerHTML = '';
-
-    const activeText = document.createElement('div');
-    activeText.innerHTML = 'online:';
-    activeText.style.color = '#104691';
-    activeText.style.background = 'lightblue';
-    activeText.style.padding = '2px';
-    activeText.style.borderRadius = '3px';
-    activeText.style.alignSelf = 'center';
-
-    activeText.style.marginRight = '10px';
-    document.getElementById('lsUsersPanel').appendChild(activeText);
+    hideOnlineUserTooltip();
+    const panel = document.getElementById('lsUsersPanel');
+    if (!panel) return;
+    const label = document.createElement('span');
+    label.className = 'ls-online-label';
+    label.textContent = 'Online';
+    const users = document.createElement('div');
+    users.className = 'ls-online-users';
+    panel.replaceChildren(label, users);
 }
 
 let bl_dudes = [];
-async function displayActive(users) {
-    if (!Array.isArray(users)) { return; }
-
+function displayActive(users) {
+    if (!Array.isArray(users)) return;
     bl_dudes.forEach(dude => dude?.remove());
     bl_dudes = [];
-    users?.forEach(user => {
-        if (user.username !== uname) {
-            bl_dudes.push(addDude(user?.cursor?.targetName, user.username));
-        }
+    users.forEach(user => {
+        if (user.username !== uname) bl_dudes.push(addDude(user.cursor?.targetName, user.username));
     });
 
-    if (!document.getElementById('lsUsersPanel')) { return; }
-    setTopbarButtonVisibility();
-
-    let yo = yo_1;
     const panel = document.getElementById('lsUsersPanel');
-    if (!panel) { return; }
-    for (let i = 0; i < users.length; i++) {
+    if (!panel) return;
+    setTopbarButtonVisibility();
+    panel.querySelector('.ls-online-label').textContent = `Online · ${users.length}`;
+    panel.style.setProperty('--ls-online-count', users.length);
+    const cards = panel.querySelector('.ls-online-users');
 
-        const container = document.createElement('div');
-        container.onclick = () => {
-            const u = users[i];
-
-            const editingTargetId = BL_UTILS.nameToTarget(u.cursor.targetName).id;
-            if (u.cursor.targetName) {
-                vm.setEditingTarget(editingTargetId);
-            }
-
+    for (const user of users) {
+        const color = getCollaboratorColor(user.username);
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'ls-online-user';
+        card.style.setProperty('--ls-user-color', color.accent);
+        card.style.setProperty('--ls-user-bg', color.background);
+        const isMe = user.username.toLowerCase() === uname.toLowerCase();
+        const label = `${user.username}${isMe ? ' (you)' : ''}`;
+        const tooltipText = user.cursor?.targetName ? `${label} · ${user.cursor.targetName}` : label;
+        card.addEventListener('pointerenter', () => showOnlineUserTooltip(card, tooltipText));
+        card.addEventListener('pointerleave', hideOnlineUserTooltip);
+        card.addEventListener('focus', () => showOnlineUserTooltip(card, tooltipText));
+        card.addEventListener('blur', hideOnlineUserTooltip);
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Escape') hideOnlineUserTooltip();
+        });
+        card.setAttribute('aria-label', `${label}. View their workspace`);
+        card.onclick = () => {
+            const cursor = user.cursor;
+            if (!cursor) return;
+            const target = cursor.targetName ? BL_UTILS.nameToTarget(cursor.targetName) : null;
+            if (target) vm.setEditingTarget(target.id);
             const workspace = BL_UTILS.getWorkspace();
-            if (!isNaN(u.cursor.editorTab)) { store.getState().scratchGui.editorTab.activeTabIndex = u.cursor.editorTab; }
-            if (u.cursor.scale && u.cursor.scrollX && u.cursor.scrollY) {
-                if (!BL_UTILS.getWorkspace().startDragMetrics) {
-                    BL_UTILS.getWorkspace().startDragMetrics = BL_UTILS.getWorkspace().scrollbar.oldHostMetrics_;
-                }
-                workspace.setScale(u.cursor.scale);
-                workspace.scroll(u.cursor.scrollX, u.cursor.scrollY);
+            if (Number.isInteger(cursor.editorTab)) store.getState().scratchGui.editorTab.activeTabIndex = cursor.editorTab;
+            if (workspace && Number.isFinite(cursor.scale) && Number.isFinite(cursor.scrollX) && Number.isFinite(cursor.scrollY)) {
+                if (!workspace.startDragMetrics) workspace.startDragMetrics = workspace.scrollbar?.oldHostMetrics_;
+                workspace.setScale(cursor.scale);
+                workspace.scroll(cursor.scrollX, cursor.scrollY);
             }
-
             vm.emitTargetsUpdate();
         };
-
-        // setInterval(()=>{
-        //     'isDragging',Blockly.getMainWorkspace().isDragging()
-        // )},500)
-
-
-        panel.style = 'display: flex; justify-content: center; align-items: center;';
-        container.style.height = '70%';
-
-
-        const user = document.createElement('img');
-        if (!users[i].pk) {
-            user.src = (await getUserInfo(users[i].username)).pic;
+        const avatar = document.createElement('img');
+        avatar.className = 'ls-online-avatar';
+        avatar.alt = '';
+        if (user.pk) {
+            avatar.src = `https://uploads.scratch.mit.edu/get_image/user/${user.pk}_60x60.png`;
         } else {
-            user.src = `https://uploads.scratch.mit.edu/get_image/user/${users[i].pk}_60x60.png`;
+            getUserInfo(user.username).then(info => { if (info?.pic) avatar.src = info.pic; });
         }
-        user.style.borderRadius = '10px';
-        // user.style.height = '100%'
-        user.style.height = '100%';
-
-        user.style.objectFit = 'cover';
-        yo++;
-        yo = yo % COLORS.length;
-        user.style.outline = '3px solid ' + COLORS[yo];
-        // user.style.outline = '3px solid ' + COLORS[Math.floor(Math.random()*COLORS.length)]
-        user.className = 'lsActiveUser';
-
-        const tooltip = document.createElement('div');
-        tooltip.innerText = users[i].username;
-        tooltip.style.backgroundColor = COLORS_BRIGHT[yo];
-        tooltip.className = 'lsActiveName';
-        container.appendChild(user);
-        container.appendChild(tooltip);
-        panel.appendChild(container);
+        const name = document.createElement('span');
+        name.className = 'ls-online-name';
+        name.textContent = isMe ? 'You' : user.username;
+        card.append(avatar, name);
+        cards.appendChild(card);
     }
+    layoutOnlineUsers(panel);
 }
 
 lsCursors = null;
@@ -4698,7 +4827,13 @@ function toggleChat(state) {
         }
         // chatbox.style.scale = chatbox.style.transformOrigin='center'
     }
-    if (isChatOpen()) { setChatUnread(0); }
+    if (isChatOpen()) {
+        setChatUnread(0);
+        coBlocksNotifications.forEach(notification => {
+            if (notification.type === 'chat') notification.unread = false;
+        });
+        updateNotificationBadge();
+    }
     refreshScratchLayout();
 }
 function isChatOpen() {
@@ -4740,6 +4875,8 @@ function addDude(spritename, dudename) {
     }
     const dude = document.createElement('div');
     dude.classList.add('sdCircle');
+    dude.style.outlineColor = getCollaboratorColor(dudename).accent;
+    dude.title = dudename;
     panel.appendChild(dude);
     getUserInfo(dudename).then(info => dude.style.backgroundImage = `url(${info.pic})`);
 

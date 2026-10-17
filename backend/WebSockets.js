@@ -21,6 +21,7 @@ export default class SocketServer {
             projectChange: this.projectChange.bind(this),
             setTitle: this.setTitle.bind(this),
             setCursor: this.setCursor.bind(this),
+            pointer: this.pointer.bind(this),
             chat: this.chat.bind(this),
         };
 
@@ -89,6 +90,30 @@ export default class SocketServer {
         for (const [key, value] of Object.entries(data.cursor)) {
             if (key in cursor) cursor[key] = value;
         }
+    }
+
+    pointer(data, client) {
+        if (!this.requireProjectAccess(data.username, data.token, data.lsId, client)) return;
+        if (!this.requireJoinedIdentity(client, data.lsId, data.username)) return;
+        const project = this.sessionManager.getProject(data.lsId);
+        const member = project?.session.getClientFromSocket(client);
+        const pointer = data.pointer;
+        if (!member || !pointer || typeof pointer.visible !== 'boolean') return;
+        if (pointer.visible && (
+            !['workspace', 'editor'].includes(pointer.space)
+            || !Number.isFinite(pointer.x) || !Number.isFinite(pointer.y)
+            || Math.abs(pointer.x) > 1_000_000 || Math.abs(pointer.y) > 1_000_000
+            || !Number.isInteger(pointer.editorTab) || pointer.editorTab < 0 || pointer.editorTab > 2
+            || typeof pointer.targetName !== 'string' || pointer.targetName.length > 200
+            || (pointer.space === 'editor' && (pointer.x < 0 || pointer.x > 1 || pointer.y < 0 || pointer.y > 1))
+        )) return;
+        const now = Date.now();
+        if (pointer.visible && now - (member.lastPointerAt || 0) < 40) return;
+        member.lastPointerAt = now;
+        const position = pointer.visible
+            ? { visible: true, x: pointer.x, y: pointer.y, space: pointer.space, editorTab: pointer.editorTab, targetName: pointer.targetName }
+            : { visible: false };
+        project.session.sendChangeFrom(client, { meta: 'pointer', username: member.username, pointer: position }, true);
     }
 
     async chat(data, client) {
@@ -190,7 +215,7 @@ export default class SocketServer {
             }
 
             try {
-                this.recordActivity(data);
+                if (data.type !== 'pointer') this.recordActivity(data);
             } catch (error) {
                 console.error('Could not record socket activity:', error);
             }
