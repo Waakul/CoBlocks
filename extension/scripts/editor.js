@@ -3971,25 +3971,28 @@ const chatCss = `
     margin-bottom: -3px;
 }
 .chatdot {
-    visibility:hidden;
+    visibility: hidden;
     position: absolute;
-    height: 1.05em;
-    /* width: 15px; */
-    /* min-width: 15px; */
-    left: 17px;
-    top: -3px;
-    background-color: red;
-    border-radius: 1em;
-    display: inline-block;
-    font-size: 16px;
-    text-align: center;
-    /* padding-left: 4px; */
-    /* border-right: 4px solid; */
-    padding: 0 0.25em;
-    line-height: 1em;
+    box-sizing: border-box;
+    min-width: 18px;
+    height: 18px;
+    right: -6px;
+    top: -6px;
+    padding: 0 4px;
+    border: 2px solid #ffe89a;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background-color: #d33b54;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    pointer-events: none;
 }
 
 .ls-chat-toggle{
+    position: relative;
     box-shadow: 0px 0px 0px 2px #ffffff3d inset;
     color: #14264d;
     font-weight: 800;
@@ -4358,7 +4361,8 @@ function incChatUnread() {
 function setChatUnread(num) {
     chatUnreadCount = num;
     const chatdot = document.querySelector('.chatdot');
-    chatdot.innerText = num;
+    if (!chatdot) return;
+    chatdot.textContent = num > 99 ? '99+' : String(num);
     chatdot.style.visibility = num === 0 ? 'hidden' : 'visible';
 }
 
