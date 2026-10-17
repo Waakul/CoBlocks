@@ -48,17 +48,17 @@
 
       <section id="settings-container">
       
-      <span id="settings-dropdown" role="button" tabindex="0" aria-expanded="false" aria-controls="settings" style="z-index: 20; width: max-content; color: var(--Text-Solid); display: flex; flex-direction: row; gap: 2px; align-items: center;"><span class="material-symbols-outlined">settings</span>Settings<span class="material-symbols-outlined" style="margin-left: -3px; color: var(--Text);">arrow_drop_down</span></span>
+      <span id="settings-dropdown" role="button" tabindex="0" aria-expanded="false" aria-controls="settings"><span class="material-symbols-outlined">settings</span>Settings<span class="material-symbols-outlined">arrow_drop_down</span></span>
       <section id="settings">
       <section id="project-chat">
         <span>Project Chats:</span>
         <div class="flex-horiz">
-          <div style="display: flex; flex-direction: row; align-items: center; justify-content: center;">
+          <div class="inline-controls">
             <input type="checkbox" id="notifs"/>
             <label for="notifs">Notifications</label>
           </div>
 
-          <div style="display: flex; flex-direction: row; align-items: center; justify-content: center;">
+          <div class="inline-controls">
             <input type="checkbox" id="ping-sounds"/>
             <label for="ping-sounds">Ping Sounds</label>
           </div>
@@ -71,7 +71,7 @@
           <info>Warning: Advanced Setting</info>
         </div>
         <div class="flex-horiz">
-          <div style="display: flex; flex-direction: row; align-items: center; justify-content: center;">
+          <div class="inline-controls">
             <input type="checkbox" id="custom-server"/>
             <input
               type="url"
@@ -84,15 +84,15 @@
       </section>
 
       <div class="flex-horiz">
-        <div style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
-          <label class="switch" style="display: flex; flex-direction: row; align-items: center; justify-content: center;">
+        <div class="inline-controls with-gap">
+          <label class="switch inline-controls">
             <input type="checkbox" id="badges">
             <span class="slider round"></span>
           </label>
           <span>Show Badges</span>
         </div>
 
-        <div style="display: flex; flex-direction: row; align-items: center; justify-content: center;">
+        <div class="inline-controls">
           <input type="checkbox" id="privme"/>
           <label for="privme">Hide that I use CoBlocks</label>
         </div>
@@ -123,10 +123,10 @@
     </div>
 
     <footer>
-      <div class="flex-horiz" style="gap: 20px; width: 100%;">
+      <div class="flex-horiz" id="credits">
       <section>
         <span class="info">Maintained By:</span>
-        <div id="credits" class="flex-horiz">
+        <div class="flex-horiz">
           <button class="credit button" id="https://github.com/Waakul/">
             <img src="/img/waakul_90x90.png"/>
             <span class="credit-name">Waakul</span>
@@ -135,10 +135,10 @@
       </section>
       <section>
         <span class="info">Developed from:</span>
-        <div id="credits" class="flex-horiz">
-          <button class="credit button" id="https://github.com/BlockliveScratch/blocklive-legacy/" style="width: 180px;">
+        <div class="flex-horiz">
+          <button class="credit button original-credit" id="https://github.com/BlockliveScratch/blocklive-legacy/">
             <img src="/img/bl-128.png"/>
-            <span class="credit-name" style="font-size: 12px;">Original project <span style="font-size: 10px;">by <a style="font-size: 10px;" href="https://github.com/meechapooch">ilhp10</a> and <a style="font-size: 10px;" href="https://github.com/rgantzos">rgantzos</a><span></span>
+            <span class="credit-name">Original project <span class="credit-authors">by <a href="https://github.com/meechapooch">ilhp10</a> and <a href="https://github.com/rgantzos">rgantzos</a></span></span>
           </button>
         </div>
       </section>
@@ -147,17 +147,17 @@
       <hr/>
 
       <div id="links" class="flex-horiz">
-        <a id="link-github" href="#" aria-label="Open CoBlocks on GitHub" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
+        <a id="link-github" href="#" aria-label="Open CoBlocks on GitHub">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2.2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.6.1-3.2 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0C14.9 4.8 16 5.1 16 5.1c.6 1.6.2 2.9.1 3.2.8.8 1.2 1.8 1.2 3.1 0 4.4-2.8 5.4-5.5 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7Z"/></svg>
           <span>GitHub</span>
         </a>
 
-        <a id="link-discord" href="#" aria-label="Join the CoBlocks Discord" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 5px;">
+        <a id="link-discord" href="#" aria-label="Join the CoBlocks Discord">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.5 5.3A16.3 16.3 0 0 0 15.4 4l-.5 1.1a15.2 15.2 0 0 0-5.8 0L8.6 4a16 16 0 0 0-4.1 1.3C1.9 9.2 1.2 13 1.6 16.8a16.5 16.5 0 0 0 5 2.5l1.2-1.7c-.7-.3-1.4-.7-2-1.2l.5-.4c3.8 1.8 7.8 1.8 11.5 0l.5.4c-.7.5-1.4.9-2.1 1.2l1.2 1.7a16.5 16.5 0 0 0 5-2.5c.5-4.4-.8-8.2-2.9-11.5ZM8.8 14.7c-1.1 0-2.1-1-2.1-2.3 0-1.2.9-2.2 2.1-2.2s2.1 1 2.1 2.2c0 1.3-.9 2.3-2.1 2.3Zm6.4 0c-1.2 0-2.1-1-2.1-2.3 0-1.2.9-2.2 2.1-2.2 1.1 0 2.1 1 2.1 2.2 0 1.3-1 2.3-2.1 2.3Z"/></svg>
           <span>Discord</span>
         </a>
 
-        <a id="link-donate" href="#" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px;">
+        <a id="link-donate" href="#">
           <img src="/img/kofi.png"/>
           <span>Please Donate</span>
         </a>
