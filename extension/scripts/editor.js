@@ -1,7 +1,8 @@
 // get exId
-const exId = document.querySelector('.livescratch-ext').dataset.exId;
+const editorScriptElement = document.querySelector('.livescratch-ext');
+const exId = editorScriptElement.dataset.exId;
 let apiUrl = '';
-const logoUrl = document.querySelector('.livescratch-ext-2')?.dataset.logoUrl || '';
+const logoUrl = editorScriptElement.dataset.logoUrl || new URL('../img/CoBlocksIcon.png', editorScriptElement.src).href;
 const pendingInviteKey = 'coblocksPendingInvite';
 const initialUrl = new URL(location.href);
 const initialInvite = {
@@ -2676,7 +2677,7 @@ usersCache = {};
 async function getUserInfo(username) {
     if (!username) { return; }
     if (['coblocks', 'livescratch'].includes(username.toLowerCase())) {
-        return { username, pic: logoUrl || 'https://scratch.mit.edu/favicon.ico' };
+        return { username, pic: logoUrl };
     }
     if (username?.toLowerCase() in usersCache && usersCache[username?.toLowerCase()]?.pk) {
         return usersCache[username?.toLowerCase()];

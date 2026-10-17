@@ -14,6 +14,7 @@ if (inviteProjectId && inviteToken) {
 const editorScript = document.createElement('script');
 editorScript.className = 'livescratch-ext';
 editorScript.dataset.exId = chrome.runtime.id;
+editorScript.dataset.logoUrl = chrome.runtime.getURL('/img/CoBlocksIcon.png');
 editorScript.src = chrome.runtime.getURL('/scripts/editor.js');
 
 function injectEditorScript() {
