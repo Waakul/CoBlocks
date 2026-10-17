@@ -15,6 +15,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     fetch('/session/', {
         credentials: 'include',
         cache: 'no-store',
+        signal: window.AbortSignal.timeout(8000),
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
     })
         .then(async response => {

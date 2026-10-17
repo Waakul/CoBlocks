@@ -429,16 +429,20 @@ async function backgroundScript() {
             return null;
         }
 
-        for (const tab of tabs) {
-            if (!tab.id) continue;
-            try {
+        let timeout;
+        try {
+            const requests = tabs.filter(tab => tab.id).map(async tab => {
                 const result = await chrome.tabs.sendMessage(tab.id, { meta: 'getScratchSession' });
-                if (result?.ok && result.session) return result.session;
-            } catch {
-                // The tab may predate this extension version or still be loading.
-            }
+                if (!result?.ok || !result.session?.user) throw new Error('No Scratch session in this tab.');
+                return result.session;
+            });
+            return await Promise.race([
+                Promise.any(requests).catch(() => null),
+                new Promise(resolve => { timeout = setTimeout(() => resolve(null), 8000); }),
+            ]);
+        } finally {
+            clearTimeout(timeout);
         }
-        return null;
     }
 
     async function getScratchSession() {
@@ -446,6 +450,7 @@ async function backgroundScript() {
             const response = await fetch('https://scratch.mit.edu/session/', {
                 credentials: 'include',
                 cache: 'no-store',
+                signal: AbortSignal.timeout(8000),
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
             });
             if (response.ok) {

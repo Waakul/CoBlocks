@@ -75,6 +75,7 @@ async function getCurrentCoBlocksTokenAfterUsernameRefresh() {
         const response = await fetch(`${apiUrl}/auth/session`, {
             method: 'POST',
             credentials: 'omit',
+            signal: AbortSignal.timeout(8000),
             headers: { authorization: token, 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: scratchUsername }),
         });
@@ -121,6 +122,7 @@ async function clearRejectedCredentials(
             clearCurrentCoBlocksToken({ clearAllTokens }),
             clearBackendAuthCookies(),
             chrome.storage.session.remove('scratchAuthLogin'),
+            chrome.storage.local.remove('scratchAuthLogin'),
         ]);
         verifying = false;
         verifyError = reason;
@@ -153,7 +155,7 @@ async function logoutCoBlocks({ waitForServer = true } = {}) {
     const username = uname;
     const token = currentCoBlocksToken;
     await clearCurrentCoBlocksToken();
-    await chrome.storage.session.remove('scratchAuthLogin');
+    await Promise.all([chrome.storage.session.remove('scratchAuthLogin'), chrome.storage.local.remove('scratchAuthLogin')]);
     verifying = false;
     verifyError = null;
     loginInFlight = false;
@@ -182,7 +184,8 @@ function finishVerification(success, error = null) {
     verifying = false;
     verifyError = error;
     loginInFlight = false;
-    chrome.storage.session.remove('scratchAuthLogin');
+    Promise.all([chrome.storage.session.remove('scratchAuthLogin'), chrome.storage.local.remove('scratchAuthLogin')])
+        .catch(error => console.warn('Could not clear completed login state:', error));
     loginTabId = null;
     loginState = null;
     endVerifyCallbacks.splice(0).forEach(callback => callback?.(success));
@@ -198,13 +201,14 @@ async function beginScratchAuth() {
         await COBLOCKS.refreshUsername(true);
         const response = await fetch(`${apiUrl}/auth/scratch/start`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+            signal: AbortSignal.timeout(15_000),
         });
         const data = await response.json();
         if (!response.ok || !data.url || !data.state) throw new Error(data.err || 'Could not start Scratch Auth.');
         loginState = data.state;
         const tab = await chrome.tabs.create({ url: 'about:blank' });
         loginTabId = tab.id;
-        await chrome.storage.session.set({ scratchAuthLogin: { state: loginState, tabId: loginTabId, apiUrl } });
+        await chrome.storage.local.set({ scratchAuthLogin: { state: loginState, tabId: loginTabId, apiUrl, createdAt: Date.now() } });
         await chrome.tabs.update(loginTabId, { url: data.url });
         startVerifyCallbacks.splice(0).forEach(callback => callback?.());
         return { started: true };
@@ -214,32 +218,46 @@ async function beginScratchAuth() {
     }
 }
 
+async function getPendingScratchAuth() {
+    const [local, session] = await Promise.all([
+        chrome.storage.local.get('scratchAuthLogin'),
+        chrome.storage.session.get('scratchAuthLogin'),
+    ]);
+    const pending = local.scratchAuthLogin || session.scratchAuthLogin;
+    if (!pending) return null;
+    if (pending.createdAt && Date.now() - pending.createdAt > 5 * 60_000) return null;
+    return pending;
+}
+
 async function completeScratchAuth(tabId, url) {
-    const stored = (await chrome.storage.session.get('scratchAuthLogin')).scratchAuthLogin;
-    if (!stored || stored.apiUrl !== apiUrl || stored.tabId !== tabId) return;
+    const stored = await getPendingScratchAuth();
+    if (!stored || stored.apiUrl !== apiUrl) return { ok: false, error: 'This login has expired or was cancelled. Start sign-in again from the CoBlocks popup.' };
     const completionUrl = new URL(url);
     const expectedUrl = new URL(`${apiUrl}/auth/scratch/complete`);
     if (completionUrl.origin !== expectedUrl.origin || completionUrl.pathname !== expectedUrl.pathname) return;
-    if (completionUrl.searchParams.get('state') !== stored.state) return;
+    if (completionUrl.searchParams.get('state') !== stored.state) return { ok: false, error: 'This page belongs to an older login. Start sign-in again from the CoBlocks popup.' };
     loginState = stored.state;
-    loginTabId = stored.tabId;
+    loginTabId = tabId;
     loginInFlight = true;
     verifying = true;
     const requestedState = loginState;
     loginState = null; // consume locally before the HTTP request
     try {
+        await COBLOCKS.refreshUsername(true);
         const response = await fetch(`${apiUrl}/auth/scratch/finish`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: requestedState }),
+            signal: AbortSignal.timeout(15_000),
         });
         const data = await response.json();
         if (!response.ok || !data.username || !data.token) throw new Error(data.err || 'Login failed.');
-        await COBLOCKS.refreshUsername(true);
         if (!await COBLOCKS.acceptAuthenticatedUsername?.(data.username)) {
             throw new Error('Scratch Auth account does not match the current Scratch account.');
         }
-        await chrome.storage.local.set({ [`lsToken.${data.username.toLowerCase()}`]: data.token });
-        await chrome.storage.local.set({ [AUTH_USERNAME_KEY]: data.username });
+        await chrome.storage.local.set({
+            [`lsToken.${data.username.toLowerCase()}`]: data.token,
+            [AUTH_USERNAME_KEY]: data.username,
+        });
         currentCoBlocksToken = data.token;
         try {
             await COBLOCKS.onAuthenticated?.();
@@ -254,8 +272,10 @@ async function completeScratchAuth(tabId, url) {
         } catch (navigationError) {
             console.error('Signed in, but could not show the success page:', navigationError);
         }
+        return { ok: true };
     } catch (error) {
         finishVerification(false, error.message);
+        return { ok: false, error: error.message };
     }
 }
 
@@ -287,7 +307,7 @@ chrome.webNavigation.onCommitted.addListener(details => {
 });
 
 async function resumeScratchAuth() {
-    const stored = (await chrome.storage.session.get('scratchAuthLogin')).scratchAuthLogin;
+    const stored = await getPendingScratchAuth();
     if (!stored || stored.apiUrl !== apiUrl) return;
     try {
         const tab = await chrome.tabs.get(stored.tabId);
@@ -303,6 +323,13 @@ chrome.tabs.onRemoved.addListener(tabId => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.meta === 'finishScratchAuth') {
+        if (!sender.tab?.id || !sender.url) return false;
+        handleScratchAuthCompletion(sender.tab.id, sender.url)
+            .then(result => sendResponse(result || { ok: false, error: 'This is not the configured CoBlocks sign-in page.' }))
+            .catch(error => sendResponse({ ok: false, error: error.message }));
+        return true;
+    }
     if (request.meta === 'startScratchAuth') {
         beginScratchAuth().then(sendResponse);
         return true;
