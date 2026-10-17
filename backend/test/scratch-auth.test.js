@@ -194,3 +194,39 @@ test('legacy tokens migrate once to a fixed 30-day expiry', () => {
         assert.equal(authenticate('Alice', 'legacy-token'), false);
     } finally { Date.now = originalNow; }
 });
+
+test('a provider timeout allows retrying the same pending login', async () => {
+    const routes = new Map();
+    const user = { username: 'Alice', verified: false };
+    setPaths({
+        get: (path, handler) => routes.set(`GET ${path}`, handler),
+        post: (path, handler) => routes.set(`POST ${path}`, handler),
+    }, {
+        getUser: () => user,
+        findUser: () => user,
+        persistUser: () => true,
+    }, { canUserAccessProject: () => true });
+    const start = response();
+    routes.get('POST /auth/scratch/start')({ ip: 'provider-timeout-test' }, start);
+    const redirect = Buffer.from(new URL(start.body.url).searchParams.get('redirect'), 'base64').toString();
+    const originalFetch = global.fetch;
+    const originalError = console.error;
+    console.error = () => {};
+    global.fetch = async () => { throw new global.DOMException('Timed out', 'TimeoutError'); };
+    try {
+        const failed = response();
+        const request = { query: { state: start.body.state, privateCode: 'provider-code' } };
+        await routes.get('GET /auth/scratch/callback')(request, failed);
+        assert.equal(failed.statusCode, 503);
+        assert.match(failed.body, /Refresh this page/);
+        assert.equal(user.verified, false);
+        global.fetch = async () => ({ ok: true, json: async () => ({ valid: true, username: 'Alice', redirect }) });
+        const retried = response();
+        await routes.get('GET /auth/scratch/callback')(request, retried);
+        assert.equal(retried.statusCode, 303);
+        assert.equal(user.verified, true);
+    } finally {
+        global.fetch = originalFetch;
+        console.error = originalError;
+    }
+});

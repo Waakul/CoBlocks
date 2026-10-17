@@ -109,10 +109,18 @@ export function setPaths(app, users, sessions) {
             item.username = data.username;
             res.redirect(303, `${API_PREFIX}/auth/scratch/complete?state=${req.query.state}`);
         } catch (error) {
-            pending.delete(req.query.state);
-            console.error('Scratch Auth verification failed:', error);
+            if (error.providerFailure && Date.now() - item.createdAt <= TTL) {
+                item.status = 'waiting';
+            } else {
+                pending.delete(req.query.state);
+            }
+            console.error('Scratch Auth verification failed:', error.providerFailure ? {
+                message: error.message,
+                cause: error.cause?.name || 'ProviderError',
+                detail: error.cause?.message,
+            } : error);
             res.status(503).send(error.providerFailure
-                ? 'CoBlocks could not reach Scratch Auth. Please try again.'
+                ? 'Scratch Auth did not respond in time or is temporarily unavailable. Refresh this page to retry. If this login has expired, start sign-in again from CoBlocks.'
                 : 'CoBlocks could not finish the login. Check the backend log and try again.');
         }
     });
