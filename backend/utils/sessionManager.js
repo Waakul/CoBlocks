@@ -495,12 +495,21 @@ export default class SessionManager {
         if (!project) return false;
         const socketIdentity = this.socketMap[socket.id]?.username;
         if (socketIdentity && String(socketIdentity).toLowerCase() !== String(username).toLowerCase()) return false;
+        const normalizedUsername = String(username).toLowerCase();
+        const wasOnline = project.session.getConnectedUsernames().includes(normalizedUsername);
         project.joinSession(socket, username);
         if (!(socket.id in this.socketMap)) {
             this.socketMap[socket.id] = { username: username, projects: [] };
         }
         if (!this.socketMap[socket.id].projects.some(projectId => String(projectId) === String(project.id))) {
             this.socketMap[socket.id].projects.push(project.id);
+        }
+        if (!wasOnline) {
+            project.session.sendChangeFrom(socket, {
+                meta: 'presence',
+                action: 'join',
+                username,
+            }, true);
         }
         console.log(username + ' joined | lsId: ' + id + ', scratchId: ' + project.scratchId);
         return true;
@@ -509,6 +518,7 @@ export default class SessionManager {
         const project = this.getProject(id);
         if (!project) { return; }
         const username = project.session.removeClient(socket.id);
+        const remainsOnline = username && project.session.getConnectedUsernames().includes(String(username).toLowerCase());
         if (socket.id in this.socketMap && !voidMap) {
             const array = this.socketMap[socket.id].projects;
 
@@ -520,6 +530,12 @@ export default class SessionManager {
         if (Object.keys(project.session.connectedClients).length === 0) {
             project.trimChanges();
             this.offloadProject(id);
+        } else if (username && !remainsOnline) {
+            project.session.sendChangeFrom(null, {
+                meta: 'presence',
+                action: 'leave',
+                username,
+            }, true);
         }
         console.log(username + ' LEFT | lsId: ' + id + ', scratchId: ' + project.scratchId);
     }

@@ -509,7 +509,7 @@ async function backgroundScript() {
                             // isClickable:true,
                         },
                         (notif) => {
-                            notificationsDb[notif] = { tab: tab.id, window: tab.windowId };
+                            notificationsDb[notif] = { tab: tab.id, window: tab.windowId, action: 'chat' };
                             if (chrome.runtime.lastError) {
                                 console.error('Could not create a CoBlocks notification:', chrome.runtime.lastError);
                             }
@@ -518,8 +518,14 @@ async function backgroundScript() {
 
                     if (!notifListenerAdded) {
                         chrome.notifications.onClicked.addListener(notif => {
-                            chrome.tabs.update(notificationsDb[notif]?.tab, { selected: true });
-                            chrome.windows.update(notificationsDb[notif]?.window, { focused: true });
+                            const notification = notificationsDb[notif];
+                            if (!notification) return;
+                            chrome.tabs.update(notification.tab, { selected: true });
+                            chrome.windows.update(notification.window, { focused: true });
+                            if (notification.action === 'chat') {
+                                ports.find(openPort => openPort.sender.tab?.id === notification.tab)?.postMessage({ meta: 'openChat' });
+                            }
+                            delete notificationsDb[notif];
                         });
                         notifListenerAdded = true;
                     }

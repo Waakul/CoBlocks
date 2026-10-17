@@ -452,6 +452,17 @@ async function activateCoBlocks() {
                 lsVersion++;
             } else if (msg.meta === 'chat') {
                 addMessage(msg.msg, true);
+            } else if (msg.meta === 'presence') {
+                const joined = msg.action === 'join';
+                addCoBlocksNotification({
+                    type: joined ? 'join' : 'leave',
+                    title: `@${msg.username} ${joined ? 'joined' : 'left'}`,
+                    message: joined ? 'They are now editing this project.' : 'They stopped editing this project.',
+                    action: 'collaboration',
+                });
+                refreshCollaborationPresence();
+            } else if (msg.meta === 'openChat') {
+                if (document.querySelector('ls-chat')) toggleChat(true);
             } else if (msg.meta === 'backpack.updated') {
                 if (document.querySelector('#lsNativeBackpack')) refreshSharedBackpack();
             }
@@ -2355,7 +2366,7 @@ const shareCSS = `
 .ls-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ls-result-copy small { color: #687970; }
 .ls-result-add { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; background: #e7a91b; font-size: 20px; }
-.ls-share-status { min-height: 16px; color: #587067; font-size: 12px; }
+.ls-share-status { min-height: 16px; color: #587067; font-size: 12px; line-height: 16px; overflow-wrap: anywhere; white-space: normal; }
 .ls-share-status.is-error { color: #b43b3b; }
 .ls-share-status.is-success { color: #14264d; }
 .ls-native-backpack { box-sizing: border-box; flex: 0 0 auto; width: 100%; height: 46px; overflow: hidden; border-top: 1px solid #d9e3f2; background: #fff; color: #334; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; transition: height .18s ease, border-color .18s ease, box-shadow .18s ease; }
@@ -2395,6 +2406,39 @@ const shareCSS = `
 #lsShare:focus-visible { outline: 3px solid rgba(95,210,165,.42); outline-offset: 2px; }
 .ls-share-button-icon { width: 18px; height: 18px; display: inline-flex; }
 .ls-share-button-icon svg { width: 100%; height: 100%; }
+.ls-notification-button { position: relative; width: 36px; min-width: 36px; height: 36px; margin-right: 8px; padding: 8px !important; border-radius: 9px !important; color: #14264d !important; background: rgba(255,255,255,.92) !important; box-shadow: 0 2px 8px rgba(20,38,77,.14); cursor: pointer; }
+.ls-notification-button:hover { background: #fff8df !important; transform: translateY(-1px); }
+.ls-notification-button > svg { width: 20px; height: 20px; }
+.ls-notification-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #855cd6; border-radius: 999px; color: #fff; background: #d33b54; font-size: 9px; font-weight: 800; line-height: 1; }
+.ls-notification-badge[hidden] { display: none; }
+#lsNotificationCenter { position: absolute; top: 44px; right: 8px; z-index: 1100; width: min(340px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 70px)); overflow: hidden; border: 1px solid rgba(20,38,77,.14); border-radius: 15px; color: #14264d; background: #fff; box-shadow: 0 18px 46px rgba(22,43,35,.26); font-family: "Helvetica Neue",Helvetica,Arial,sans-serif; }
+#lsNotificationCenter[hidden], #lsNotificationToast[hidden] { display: none; }
+.ls-notification-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px 11px; border-bottom: 1px solid #e7ebf2; background: linear-gradient(120deg,#fffdf7,#ffe399); }
+.ls-notification-header > div { display: flex; flex-direction: column; }
+.ls-notification-header strong { color: #14264d; font-size: 15px; }
+.ls-notification-header span { color: #63708a; font-size: 11px; }
+.ls-notification-clear { padding: 5px 7px; border: 0; border-radius: 7px; color: #14264d; background: rgba(255,255,255,.65); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.ls-notification-clear:hover { background: #fff; }
+.ls-notification-list { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
+.ls-notification-item { width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; padding: 9px; border: 0; border-radius: 10px; color: #14264d; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.ls-notification-item:hover { background: #f3f6fb; }
+.ls-notification-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: #425a88; background: #eaf0fb; }
+.ls-notification-icon svg { width: 18px; height: 18px; }
+.ls-notification-item.is-chat .ls-notification-icon { color: #765a00; background: #fff1b8; }
+.ls-notification-item.is-join .ls-notification-icon, .ls-notification-item.is-success .ls-notification-icon { color: #14734a; background: #dff5ea; }
+.ls-notification-item.is-leave .ls-notification-icon { color: #5f6b80; background: #edf0f5; }
+.ls-notification-item.is-error .ls-notification-icon { color: #a33242; background: #ffe8ec; }
+.ls-notification-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ls-notification-copy strong { overflow: hidden; color: #1e2f51; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ls-notification-copy > span { color: #53617a; font-size: 11px; line-height: 15px; overflow-wrap: anywhere; }
+.ls-notification-copy time { color: #8993a5; font-size: 9px; }
+.ls-notification-empty { padding: 34px 16px; color: #768196; font-size: 12px; text-align: center; }
+#lsNotificationToast { position: absolute; top: 44px; right: 8px; z-index: 1090; width: min(300px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border: 1px solid rgba(20,38,77,.14); border-left: 4px solid #e7b326; border-radius: 11px; color: #14264d; background: #fff; box-shadow: 0 12px 34px rgba(20,38,77,.22); font: inherit; text-align: left; cursor: pointer; }
+#lsNotificationToast strong { color: #14264d; font-size: 12px; }
+#lsNotificationToast span { color: #53617a; font-size: 11px; line-height: 15px; overflow-wrap: anywhere; }
+#lsNotificationToast.is-error { border-left-color: #d33b54; }
+#lsNotificationToast.is-join, #lsNotificationToast.is-success { border-left-color: #27a76f; }
+#lsNotificationToast.is-leave { border-left-color: #758198; }
 @media (max-width: 360px) {
     .ls-collab-panel { padding: 13px; gap: 10px; }
     .ls-collab-actions { grid-template-columns: 1fr; }
@@ -2751,6 +2795,169 @@ function setShareStatus(message, type = '') {
     if (!status) return;
     status.textContent = message;
     status.className = `ls-share-status${type ? ` is-${type}` : ''}`;
+    if (message && type) {
+        addCoBlocksNotification({
+            type,
+            title: type === 'error' ? 'Something went wrong' : 'Collaboration updated',
+            message,
+        });
+    }
+}
+
+const coBlocksNotifications = [];
+let coBlocksNotificationUnread = 0;
+let notificationToastTimer;
+
+function notificationIcon(type) {
+    const icons = {
+        bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path>',
+        chat: '<path d="M4 5.5h16v11H9l-5 3v-14Z"></path><path d="M8 10h8M8 13h5"></path>',
+        join: '<circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M18 7v6M15 10h6"></path>',
+        leave: '<circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M15 10h6"></path>',
+        error: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 17h.01"></path>',
+        success: '<circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16.5 9"></path>',
+    };
+    return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[type] || icons.success}</svg>`;
+}
+
+function createNotificationsButton(shareButton) {
+    const button = document.createElement('button');
+    button.id = 'lsNotificationsButton';
+    button.type = 'button';
+    button.className = `${copyMatchingClasses(shareButton, ['button_outlined-button', 'menu-bar_menu-bar-button'])} ls-notification-button`;
+    button.setAttribute('aria-label', 'Open CoBlocks notifications');
+    button.setAttribute('aria-expanded', 'false');
+    button.title = 'CoBlocks notifications';
+    button.innerHTML = `${notificationIcon('bell')}<span class="ls-notification-badge" hidden>0</span>`;
+    button.onclick = toggleNotificationCenter;
+    return button;
+}
+
+function createNotificationCenter() {
+    const panel = document.createElement('section');
+    panel.id = 'lsNotificationCenter';
+    panel.hidden = true;
+    panel.setAttribute('aria-label', 'CoBlocks notifications');
+    panel.innerHTML = `
+        <div class="ls-notification-header">
+            <div><strong>Notifications</strong><span>Project activity</span></div>
+            <button type="button" class="ls-notification-clear">Clear</button>
+        </div>
+        <div class="ls-notification-list"></div>`;
+    panel.querySelector('.ls-notification-clear').onclick = () => {
+        coBlocksNotifications.length = 0;
+        renderNotificationCenter();
+    };
+    return panel;
+}
+
+function createNotificationToast() {
+    const toast = document.createElement('button');
+    toast.id = 'lsNotificationToast';
+    toast.type = 'button';
+    toast.hidden = true;
+    toast.innerHTML = '<strong></strong><span></span>';
+    return toast;
+}
+
+function notificationAction(notification) {
+    closeNotificationCenter();
+    clearTimeout(notificationToastTimer);
+    const toast = document.querySelector('#lsNotificationToast');
+    if (toast) toast.hidden = true;
+    if (notification.action === 'chat') {
+        const chat = document.querySelector('ls-chat');
+        if (chat) {
+            toggleChat(true);
+            chat.querySelector('ls-chat-input')?.focus();
+        }
+    } else if (notification.action === 'collaboration' && lsDropdown) {
+        lsDropdown.style.display = 'flex';
+        coblocksButton?.setAttribute('aria-expanded', 'true');
+        refreshShareModal();
+    }
+}
+
+function renderNotificationCenter() {
+    const list = document.querySelector('.ls-notification-list');
+    if (!list) return;
+    list.replaceChildren();
+    if (!coBlocksNotifications.length) {
+        const empty = document.createElement('div');
+        empty.className = 'ls-notification-empty';
+        empty.textContent = 'No notifications yet';
+        list.appendChild(empty);
+        return;
+    }
+
+    for (const notification of coBlocksNotifications) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `ls-notification-item is-${notification.type}`;
+        item.innerHTML = `
+            <span class="ls-notification-icon">${notificationIcon(notification.type)}</span>
+            <span class="ls-notification-copy"><strong></strong><span></span><time></time></span>`;
+        item.querySelector('strong').textContent = notification.title;
+        item.querySelector('.ls-notification-copy > span').textContent = notification.message;
+        item.querySelector('time').textContent = notification.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        item.onclick = () => notificationAction(notification);
+        list.appendChild(item);
+    }
+}
+
+function updateNotificationBadge() {
+    const badge = document.querySelector('.ls-notification-badge');
+    if (!badge) return;
+    badge.textContent = coBlocksNotificationUnread > 99 ? '99+' : String(coBlocksNotificationUnread);
+    badge.hidden = coBlocksNotificationUnread === 0;
+}
+
+function showNotificationToast(notification) {
+    const toast = document.querySelector('#lsNotificationToast');
+    if (!toast || !document.querySelector('#lsNotificationCenter')?.hidden) return;
+    clearTimeout(notificationToastTimer);
+    toast.className = `is-${notification.type}`;
+    toast.querySelector('strong').textContent = notification.title;
+    toast.querySelector('span').textContent = notification.message;
+    toast.hidden = false;
+    toast.onclick = () => notificationAction(notification);
+    notificationToastTimer = setTimeout(() => { toast.hidden = true; }, 5500);
+}
+
+function addCoBlocksNotification({ type = 'success', title, message, action = null }) {
+    if (!title || !message) return;
+    const notification = { type, title, message: String(message), action, time: new Date() };
+    coBlocksNotifications.unshift(notification);
+    if (coBlocksNotifications.length > 30) coBlocksNotifications.length = 30;
+    coBlocksNotificationUnread++;
+    updateNotificationBadge();
+    renderNotificationCenter();
+    showNotificationToast(notification);
+}
+
+function closeNotificationCenter() {
+    const panel = document.querySelector('#lsNotificationCenter');
+    const button = document.querySelector('#lsNotificationsButton');
+    if (panel) panel.hidden = true;
+    button?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleNotificationCenter() {
+    const panel = document.querySelector('#lsNotificationCenter');
+    const button = document.querySelector('#lsNotificationsButton');
+    if (!panel || !button) return;
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    button.setAttribute('aria-expanded', String(opening));
+    if (opening) {
+        if (lsDropdown) lsDropdown.style.display = 'none';
+        coblocksButton?.setAttribute('aria-expanded', 'false');
+        coBlocksNotificationUnread = 0;
+        updateNotificationBadge();
+        renderNotificationCenter();
+        const toast = document.querySelector('#lsNotificationToast');
+        if (toast) toast.hidden = true;
+    }
 }
 
 let lsBackpackItems = [];
@@ -3409,7 +3616,10 @@ const lsShareClick = () => {
     const opening = lsDropdown.style.display === 'none';
     lsDropdown.style.display = opening ? 'flex' : 'none';
     coblocksButton.setAttribute('aria-expanded', String(opening));
-    if (opening) refreshShareModal();
+    if (opening) {
+        closeNotificationCenter();
+        refreshShareModal();
+    }
 };
 
 coblocksButton = null;
@@ -3425,10 +3635,14 @@ function addButtonInjectors() {
 
             const container = document.createElement('livescratchContainer');
             container.style.display = 'flex';
-            container.style.flexDirection = 'column';
+            container.style.flexDirection = 'row';
+            container.style.alignItems = 'center';
             container.style.position = 'relative';
 
             const button = createCoBlocksButton(shareButton);
+            const notificationsButton = createNotificationsButton(shareButton);
+            const notificationsPanel = createNotificationCenter();
+            const notificationToast = createNotificationToast();
             coblocksButton = button;
             const dropdown = document.createElement('livescratchDropdown');
             dropdown.innerHTML = shareDropdown;
@@ -3444,17 +3658,23 @@ function addButtonInjectors() {
                 else lsActivateClick();
             };
             document.addEventListener('click', event => {
-                if (!dropdown.contains(event.target) && !button.contains(event.target)) {
+                if (!container.contains(event.target)) {
                     dropdown.style.display = 'none';
                     button.setAttribute('aria-expanded', 'false');
+                    closeNotificationCenter();
                 }
             });
 
             container.appendChild(button);
+            container.appendChild(notificationsButton);
             container.appendChild(dropdown);
+            container.appendChild(notificationsPanel);
+            container.appendChild(notificationToast);
             shareButton.parentNode.insertBefore(container, shareButton);
 
             injectCoBlocksAssets();
+            renderNotificationCenter();
+            updateNotificationBadge();
             refreshShareModal();
             addRevertButton();
         },
@@ -4265,6 +4485,12 @@ async function addMessage(msg, notif) {
 
 
     if (notif) {
+        addCoBlocksNotification({
+            type: 'chat',
+            title: `@${msg.sender}`,
+            message: msg.text,
+            action: 'chat',
+        });
         if (!isChatOpen()) {
             incChatUnread();
         }
