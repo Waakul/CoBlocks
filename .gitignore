@@ -8,3 +8,4 @@ backend/storage-backups/
 /debug/
 /dist/
 backend/.env
+extension.zip
