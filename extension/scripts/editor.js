@@ -15,10 +15,14 @@ if (initialInvite.projectId && initialInvite.token) {
     history.replaceState(null, '', initialUrl);
 }
 chrome.runtime.sendMessage(exId, { meta: 'getAPI-URL' }, function(response) {
-    apiUrl = response.apiURL;
+    if (chrome.runtime.lastError) return;
+    if (response?.apiURL) apiUrl = response.apiURL;
 });
 
-chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => { apiUrl = userData.apiUrl; });
+chrome.runtime.sendMessage(exId, { meta: 'getUsernamePlus' }, (userData) => {
+    if (chrome.runtime.lastError) return;
+    if (userData?.apiUrl) apiUrl = userData.apiUrl;
+});
 
 //////////// TRAP UTILS ///////////
 
@@ -2671,6 +2675,9 @@ usersCache = {};
 
 async function getUserInfo(username) {
     if (!username) { return; }
+    if (['coblocks', 'livescratch'].includes(username.toLowerCase())) {
+        return { username, pic: logoUrl || 'https://scratch.mit.edu/favicon.ico' };
+    }
     if (username?.toLowerCase() in usersCache && usersCache[username?.toLowerCase()]?.pk) {
         return usersCache[username?.toLowerCase()];
     }
@@ -2679,10 +2686,10 @@ async function getUserInfo(username) {
     try {
         res = await (await fetch('https://scratch.mit.edu/site-api/users/all/' + username?.toLowerCase())).json();
     } catch (e) {
-        return null;
+        return { username, pic: 'https://scratch.mit.edu/favicon.ico' };
     }
     if (!res) {
-        return null;
+        return { username, pic: 'https://scratch.mit.edu/favicon.ico' };
     }
 
     let user = res.user;
@@ -3758,7 +3765,7 @@ function clearActive() {
 
 let bl_dudes = [];
 async function displayActive(users) {
-    if (!users) { return; }
+    if (!Array.isArray(users)) { return; }
 
     bl_dudes.forEach(dude => dude?.remove());
     bl_dudes = [];

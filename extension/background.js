@@ -130,8 +130,8 @@ function getCollaborationInvite(url) {
 // the rest of the service worker has finished loading.
 const queuedInviteNavigations = new Map();
 let processInviteNavigation = null;
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    const invite = getCollaborationInvite(changeInfo.url);
+function captureInviteNavigation(tabId, url, tab) {
+    const invite = getCollaborationInvite(url);
     if (!invite) return;
     const navigation = { tabId, tab, ...invite };
     if (processInviteNavigation) {
@@ -141,9 +141,28 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     } else {
         queuedInviteNavigations.set(tabId, navigation);
     }
+}
+chrome.tabs.onCreated.addListener(tab => {
+    captureInviteNavigation(tab.id, tab.pendingUrl || tab.url, tab);
 });
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    captureInviteNavigation(tabId, changeInfo.url, tab);
+});
+chrome.webNavigation.onBeforeNavigate.addListener(details => {
+    if (details.frameId !== 0) return;
+    captureInviteNavigation(details.tabId, details.url, { id: details.tabId, url: details.url });
+}, { url: [{ hostEquals: 'scratch.mit.edu' }] });
 
 let apiUrl;
+
+chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
+    if (request.meta !== 'getAPI-URL') return false;
+    if (!sender.url?.startsWith('https://scratch.mit.edu/')) return false;
+    getApiUrl().then(url => sendResponse({ apiURL: url })).catch(error => {
+        sendResponse({ error: error.message });
+    });
+    return true;
+});
 
 getApiUrl()
     .catch(error => {
@@ -207,6 +226,16 @@ async function backgroundScript() {
     const pendingTabInitializations = {};
     const inviteAcceptances = new Map();
 
+    function initializeLinkedTab(tabId, lsId) {
+        const callback = tabCallbacks[tabId];
+        if (callback) {
+            delete tabCallbacks[tabId];
+            callback({ meta: 'initCoBlocks', lsId });
+        } else {
+            pendingTabInitializations[tabId] = lsId;
+        }
+    }
+
     function getProjectId(url) {
         if (projectsPageTester.test(url)) {
             const id = new URL(url).pathname.split('/')[2];
@@ -225,17 +254,13 @@ async function backgroundScript() {
         const id = getProjectId(tab.url);
         if (id && tab.id in newProjects) {
             const lsId = newProjects[tab.id];
-            delete newProjects[tab.id];
             const response = await authenticatedFetch(`${apiUrl}/linkScratch/${id}/${lsId}/${uname}`, {
                 method: 'PUT',
                 headers: { authorization: currentCoBlocksToken },
             }); // link scratch project with api
             if (response.ok) {
-                const callback = tabCallbacks[tab.id];
-                if (callback) {
-                    delete tabCallbacks[tab.id];
-                    callback({ meta: 'initCoBlocks', lsId });
-                } else pendingTabInitializations[tab.id] = lsId;
+                delete newProjects[tab.id];
+                initializeLinkedTab(tab.id, lsId);
             }
         }
     }
@@ -290,6 +315,7 @@ async function backgroundScript() {
                 const linkError = await linkResponse.json().catch(() => ({}));
                 return { ok: false, status: linkResponse.status, error: linkError.err || 'Could not link the new Scratch project.' };
             }
+            initializeLinkedTab(tabId, data.projectId);
             return { ok: true, ...data, scratchId: currentScratchId };
         })();
 
@@ -682,6 +708,7 @@ async function backgroundScript() {
     chrome.runtime.onMessageExternal.addListener(
         function (request, sender, sendResponse) {
             if (!isTrustedScratchSender(sender)) return false;
+            if (request.meta === 'getAPI-URL') return false;
             (async () => {
                 if (request.meta === 'getLsId') {
                     if (!request.scratchId || request.scratchId === '.') { sendResponse(''); return; }
@@ -720,6 +747,7 @@ async function backgroundScript() {
                 } else if (request.meta === 'getUsername') {
                     sendResponse(uname);
                 } else if (request.meta === 'getUsernamePlus') {
+                    await refreshUsername();
                     sendResponse({
                         uname,
                         signedin,
@@ -856,7 +884,10 @@ async function backgroundScript() {
                 } else if (request.meta === 'badges?') {
                     sendResponse({ badges: (await chrome.storage.local.get(['badges'])).badges });
                 }
-            })();
+            })().catch(error => {
+                console.error('CoBlocks editor request failed:', request.meta, error);
+                sendResponse({ ok: false, error: error.message || 'Could not complete the CoBlocks request.' });
+            });
             return true;
         });
 

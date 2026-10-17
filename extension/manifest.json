@@ -46,7 +46,8 @@
   },
   "permissions": [
     "storage",
-    "cookies"
+    "cookies",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://scratch.mit.edu/*",
