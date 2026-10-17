@@ -18,7 +18,8 @@
       ],
       "js": [
         "injectors/editor.js"
-      ]
+      ],
+      "run_at": "document_start"
     },
     {
       "matches": [

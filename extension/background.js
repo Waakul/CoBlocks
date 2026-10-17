@@ -174,6 +174,7 @@ async function backgroundScript() {
 
     const newProjects = {}; // tabId (or 'newtab') -> lsId
     const tabCallbacks = {}; // tabId -> callback function
+    const pendingTabInitializations = {};
 
     function getProjectId(url) {
         if (projectsPageTester.test(url)) {
@@ -194,11 +195,17 @@ async function backgroundScript() {
         if (id && tab.id in newProjects) {
             const lsId = newProjects[tab.id];
             delete newProjects[tab.id];
-            authenticatedFetch(`${apiUrl}/linkScratch/${id}/${lsId}/${uname}`, {
+            const response = await authenticatedFetch(`${apiUrl}/linkScratch/${id}/${lsId}/${uname}`, {
                 method: 'PUT',
                 headers: { authorization: currentCoBlocksToken },
             }); // link scratch project with api
-            tabCallbacks[tab.id]({ meta: 'initCoBlocks', lsId }); // init livescratch in project tab
+            if (response.ok) {
+                const callback = tabCallbacks[tab.id];
+                if (callback) {
+                    delete tabCallbacks[tab.id];
+                    callback({ meta: 'initCoBlocks', lsId });
+                } else pendingTabInitializations[tab.id] = lsId;
+            }
         }
     }
 
@@ -613,6 +620,11 @@ async function backgroundScript() {
                     });
                 } else if (request.meta === 'callback') {
                     tabCallbacks[sender.tab.id] = sendResponse;
+                    if (pendingTabInitializations[sender.tab.id]) {
+                        sendResponse({ meta: 'initCoBlocks', lsId: pendingTabInitializations[sender.tab.id] });
+                        delete pendingTabInitializations[sender.tab.id];
+                        delete tabCallbacks[sender.tab.id];
+                    }
                 } else if (request.meta === 'projectSaved') {
                     // {meta:'projectSaved',lsId,scratchId,version:lsVersion}
                     authenticatedFetch(`${apiUrl}/projectSaved/${request.scratchId}/${request.version}`, { method: 'POST', headers: { authorization: currentCoBlocksToken } });
@@ -681,7 +693,23 @@ async function backgroundScript() {
                             body: JSON.stringify({ token: request.token }),
                         });
                         const data = await response.json().catch(() => ({}));
-                        if (response.ok && !data.scratchId && sender.tab?.id) newProjects[sender.tab.id] = data.projectId;
+                        if (response.ok && !data.scratchId && sender.tab?.id) {
+                            const currentScratchId = getProjectId(sender.tab.url);
+                            if (currentScratchId) {
+                                const linkResponse = await authenticatedFetch(`${apiUrl}/linkScratch/${currentScratchId}/${data.projectId}/${username}`, {
+                                    method: 'PUT',
+                                    headers: { authorization: currentCoBlocksToken },
+                                });
+                                if (!linkResponse.ok) {
+                                    const linkError = await linkResponse.json().catch(() => ({}));
+                                    sendResponse({ ok: false, status: linkResponse.status, error: linkError.err || 'Could not link the new Scratch project.' });
+                                    return;
+                                }
+                                data.scratchId = currentScratchId;
+                            } else {
+                                newProjects[sender.tab.id] = data.projectId;
+                            }
+                        }
                         sendResponse(response.ok ? { ok: true, ...data } : { ok: false, status: response.status, error: data.err || (data.noauth ? 'Sign in to CoBlocks before accepting this invite.' : 'Could not accept the invite.') });
                     } catch {
                         sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
