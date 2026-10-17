@@ -2,6 +2,11 @@
     flex: 0 0 auto;
     object-fit: contain;
     vertical-align: middle;
+    transition: rotate 0.4s;
+}
+
+.blbadge:hover {
+    rotate: 360deg;
 }
 
 .coblocks-user-badge {
