@@ -10,7 +10,7 @@ self.addEventListener = (function (original) {
     };
 })(self.addEventListener);
 
-if (typeof importScripts === 'function') importScripts('background/socket.io.js', 'background/auth.js');
+if (typeof importScripts === 'function') importScripts('background/socket.io.js', 'background/auth.js', 'background/updates.js');
 
 const API_PREFIX = '/apiv2';
 const RECOVERY_DB_NAME = 'LiveScratchRecovery'; // Keep the legacy name so existing recovery data remains available.
@@ -199,14 +199,18 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     const { apiUpdateReload } = await chrome.storage.local.get('apiUpdateReload');
     if (apiUpdateReload) {
         await chrome.storage.local.set({ apiUpdateReload: false });
-        return;
+        if (details.reason !== chrome.runtime.OnInstalledReason.UPDATE
+            || details.previousVersion === chrome.runtime.getManifest().version) return;
     }
 
     if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
         chrome.tabs.create({ url: 'https://ko-fi.com/waakul' });
         chrome.tabs.create({ url: 'https://livescratch.waakul.com' });
-    } else if (details.reason === chrome.runtime.OnInstalledReason.UPDATE) {
-        chrome.tabs.create({ url: 'https://livescratch.waakul.com' /* 'https://livescratch.waakul.com/new-release' */ });
+    } else if (details.reason === chrome.runtime.OnInstalledReason.UPDATE
+        && details.previousVersion !== chrome.runtime.getManifest().version) {
+        const version = chrome.runtime.getManifest().version_name || chrome.runtime.getManifest().version;
+        await chrome.storage.local.set({ pendingExtensionUpdate: { version, previousVersion: details.previousVersion } });
+        await chrome.storage.local.remove('extensionUpdateClaim');
     }
 });
 

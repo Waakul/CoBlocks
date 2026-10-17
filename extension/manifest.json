@@ -57,6 +57,15 @@
       "js": [
         "injectors/all.js"
       ]
+    },
+    {
+      "matches": [
+        "https://scratch.mit.edu/*"
+      ],
+      "js": [
+        "injectors/update.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "background": {
@@ -64,6 +73,7 @@
     "scripts": [
       "background/socket.io.js",
       "background/auth.js",
+      "background/updates.js",
       "background.js"
     ]
   },
@@ -75,7 +85,8 @@
   ],
   "host_permissions": [
     "https://scratch.mit.edu/*",
-    "https://livescratchapi.waakul.com/*"
+    "https://livescratchapi.waakul.com/*",
+    "https://api.github.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

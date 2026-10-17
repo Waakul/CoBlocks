@@ -9,7 +9,7 @@ const runtimeSource = readFileSync(new URL('scripts/runtime.js', extensionRoot),
 test('the same manifest provides Chrome and Firefox background entry points', () => {
     const manifest = JSON.parse(readFileSync(new URL('manifest.json', extensionRoot), 'utf8'));
     assert.equal(manifest.background.service_worker, 'background.js');
-    assert.deepEqual(manifest.background.scripts, ['background/socket.io.js', 'background/auth.js', 'background.js']);
+    assert.deepEqual(manifest.background.scripts, ['background/socket.io.js', 'background/auth.js', 'background/updates.js', 'background.js']);
     assert.equal(manifest.minimum_chrome_version, '121');
     assert.equal(manifest.browser_specific_settings.gecko.id, 'coblocks@waakul.com');
     assert.ok(manifest.web_accessible_resources[0].resources.includes('scripts/runtime.js'));
