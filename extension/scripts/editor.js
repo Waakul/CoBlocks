@@ -2898,7 +2898,7 @@ function createNotificationToast() {
         } else {
             toast.style.transform = '';
             toast.style.opacity = '';
-            notificationToastTimer = setTimeout(dismissNotificationToast, 2600);
+            notificationToastTimer = setTimeout(dismissNotificationToast, 2000);
         }
     };
     toast.addEventListener('pointerup', finishSwipe);
@@ -3010,7 +3010,7 @@ function showNotificationToast(notification) {
         easing: 'ease-out',
     });
     toast.onclick = () => notificationAction(notification);
-    notificationToastTimer = setTimeout(dismissNotificationToast, 2600);
+    notificationToastTimer = setTimeout(dismissNotificationToast, 2000);
 }
 
 function addCoBlocksNotification({ type = 'success', title, message, action = null }) {
