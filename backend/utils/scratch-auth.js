@@ -73,6 +73,11 @@ export function setPaths(app, users, sessions) {
     userManager = users;
     sessionManager = sessions;
 
+    app.use?.('/auth', (_req, res, next) => {
+        res.set('Cache-Control', 'no-store');
+        next();
+    });
+
     app.post('/auth/scratch/start', (req, res) => {
         sweep();
         const base = publicBaseUrl();
@@ -93,9 +98,17 @@ export function setPaths(app, users, sessions) {
 
     app.get('/auth/scratch/callback', async (req, res) => {
         const item = pending.get(req.query.state);
-        if (!item || Date.now() - item.createdAt > TTL || item.status !== 'waiting') return res.status(400).send('This login expired. Please start again from CoBlocks.');
+        if (!item || Date.now() - item.createdAt > TTL) return res.status(400).send('This login expired. Please start again from CoBlocks.');
+        // Browsers and proxies can repeat a callback before verification finishes.
+        if (item.status === 'verifying') await item.verification;
+        if (['complete', 'issued'].includes(item.status)) {
+            return res.redirect(303, `${API_PREFIX}/auth/scratch/complete?state=${req.query.state}`);
+        }
+        if (pending.get(req.query.state) !== item) return res.status(400).send('This login could not be verified. Please start again from CoBlocks.');
         if (typeof req.query.privateCode !== 'string' || !req.query.privateCode) return res.status(400).send('Scratch Auth did not complete the CoBlocks login.');
         item.status = 'verifying';
+        let resolveVerification;
+        item.verification = new Promise(resolve => { resolveVerification = resolve; });
         try {
             const data = await verifyPrivateCode(req.query.privateCode);
             if (data.valid !== true || data.redirect !== item.redirect || !validUsername(data.username)) {
@@ -122,6 +135,8 @@ export function setPaths(app, users, sessions) {
             res.status(503).send(error.providerFailure
                 ? 'Scratch Auth did not respond in time or is temporarily unavailable. Refresh this page to retry. If this login has expired, start sign-in again from CoBlocks.'
                 : 'CoBlocks could not finish the login. Check the backend log and try again.');
+        } finally {
+            resolveVerification();
         }
     });
 

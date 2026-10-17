@@ -241,3 +241,40 @@ test('a provider timeout allows retrying the same pending login', async () => {
         console.error = originalError;
     }
 });
+
+test('repeated callbacks share verification and redirect after success', async () => {
+    const routes = new Map();
+    setPaths({
+        get(path, handler) { routes.set(`GET ${path}`, handler); },
+        post(path, handler) { routes.set(`POST ${path}`, handler); },
+    }, { getUser: username => ({ username }), persistUser: () => true }, {});
+    const start = response();
+    routes.get('POST /auth/scratch/start')({ ip: 'duplicate-callback-test' }, start);
+    const { state, url } = start.body;
+    const redirect = Buffer.from(new URL(url).searchParams.get('redirect'), 'base64').toString();
+    const originalFetch = global.fetch;
+    let release;
+    let calls = 0;
+    global.fetch = async () => {
+        calls++;
+        await new Promise(resolve => { release = resolve; });
+        return { ok: true, json: async () => ({ valid: true, username: 'Alice', redirect }) };
+    };
+    try {
+        const request = { query: { state, privateCode: 'test-code' } };
+        const first = response();
+        const second = response();
+        const callback = routes.get('GET /auth/scratch/callback');
+        const firstRequest = callback(request, first);
+        const secondRequest = callback(request, second);
+        assert.equal(calls, 1);
+        release();
+        await Promise.all([firstRequest, secondRequest]);
+        assert.equal(first.statusCode, 303);
+        assert.equal(second.statusCode, 303);
+        const replay = response();
+        await callback(request, replay);
+        assert.equal(replay.statusCode, 303);
+        assert.equal(calls, 1);
+    } finally { global.fetch = originalFetch; }
+});
