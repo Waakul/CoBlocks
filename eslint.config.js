@@ -131,6 +131,8 @@ export default [
                 ...browserGlobals,
                 AbortSignal: 'readonly',
                 apiUrl: 'writable',
+                backgroundReady: 'readonly',
+                resumeScratchAuth: 'readonly',
                 authenticatedFetch: 'readonly',
                 clearRejectedCredentials: 'readonly',
                 currentCoBlocksToken: 'writable',

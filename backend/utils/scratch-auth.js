@@ -113,7 +113,7 @@ export function setPaths(app, users, sessions) {
     app.get('/auth/scratch/complete', (req, res) => {
         const item = pending.get(req.query.state);
         if (!item || item.status !== 'complete') return res.status(400).send('This CoBlocks login is incomplete or expired.');
-        res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>CoBlocks login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Signed in to CoBlocks</h1><p>You can close this tab and return to Scratch.</p></body></html>');
+        res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><title>CoBlocks login</title></head><body style="font:16px system-ui;max-width:35rem;margin:4rem auto;padding:1rem"><h1>Finishing CoBlocks sign-in</h1><p>Keep this tab open while the extension saves your login. You will be redirected when it is ready.</p></body></html>');
     });
 
     app.post('/auth/scratch/finish', (req, res) => {

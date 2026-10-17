@@ -164,15 +164,18 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
     return true;
 });
 
-getApiUrl()
+const backgroundReady = getApiUrl()
     .catch(error => {
         console.error('Could not load the configured API URL:', error);
         return addApiPrefix('https://livescratchapi.waakul.com');
     })
-    .then(url => {
+    .then(async url => {
         apiUrl = url;
-        backgroundScript();
+        await backgroundScript();
     });
+backgroundReady.then(() => resumeScratchAuth()).catch(error => {
+    console.error('Could not initialize the CoBlocks background worker:', error);
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.meta === 'getAPI-URL') {
