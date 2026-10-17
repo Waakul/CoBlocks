@@ -3,6 +3,7 @@ const editorScriptElement = document.querySelector('.livescratch-ext');
 const exId = editorScriptElement.dataset.exId;
 let apiUrl = '';
 const logoUrl = editorScriptElement.dataset.logoUrl || new URL('../img/CoBlocksIcon.png', editorScriptElement.src).href;
+const pingUrl = new URL('../sounds/ping.mp3', editorScriptElement.src).href;
 const pendingInviteKey = 'coblocksPendingInvite';
 const initialUrl = new URL(location.href);
 const initialInvite = {
@@ -2425,7 +2426,7 @@ const shareCSS = `
 .ls-notification-clear { padding: 5px 7px; border: 0; border-radius: 7px; color: #14264d; background: rgba(255,255,255,.65); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .ls-notification-clear:hover { background: #fff; }
 .ls-notification-list { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
-.ls-notification-item { width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; padding: 9px; border: 0; border-radius: 10px; color: #14264d; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.ls-notification-item { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; padding: 9px; border: 0; border-radius: 10px; color: #14264d; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .ls-notification-item:hover { background: #f3f6fb; }
 .ls-notification-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: #425a88; background: #eaf0fb; }
 .ls-notification-icon svg { width: 18px; height: 18px; }
@@ -2435,12 +2436,13 @@ const shareCSS = `
 .ls-notification-item.is-error .ls-notification-icon { color: #a33242; background: #ffe8ec; }
 .ls-notification-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ls-notification-copy strong { overflow: hidden; color: #1e2f51; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.ls-notification-copy > span { color: #53617a; font-size: 11px; line-height: 15px; overflow-wrap: anywhere; }
+.ls-notification-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #53617a; font-size: 11px; line-height: 15px; }
 .ls-notification-copy time { color: #8993a5; font-size: 9px; }
 .ls-notification-empty { padding: 34px 16px; color: #768196; font-size: 12px; text-align: center; }
 #lsNotificationToast { position: absolute; top: 44px; right: 8px; z-index: 1090; width: min(300px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border: 1px solid rgba(20,38,77,.14); border-left: 4px solid #e7b326; border-radius: 11px; color: #14264d; background: #fff; box-shadow: 0 12px 34px rgba(20,38,77,.22); font: inherit; text-align: left; cursor: pointer; }
-#lsNotificationToast strong { color: #14264d; font-size: 12px; }
-#lsNotificationToast span { color: #53617a; font-size: 11px; line-height: 15px; overflow-wrap: anywhere; }
+#lsNotificationToast { box-sizing: border-box; }
+#lsNotificationToast strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #14264d; font-size: 12px; }
+#lsNotificationToast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #53617a; font-size: 11px; line-height: 15px; }
 #lsNotificationToast.is-error { border-left-color: #d33b54; }
 #lsNotificationToast.is-join, #lsNotificationToast.is-success { border-left-color: #27a76f; }
 #lsNotificationToast.is-leave { border-left-color: #758198; }
@@ -2902,6 +2904,7 @@ function renderNotificationCenter() {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = `ls-notification-item is-${notification.type}`;
+        item.title = `${notification.title}\n${notification.message}`;
         item.innerHTML = `
             <span class="ls-notification-icon">${notificationIcon(notification.type)}</span>
             <span class="ls-notification-copy"><strong></strong><span></span><time></time></span>`;
@@ -2925,6 +2928,7 @@ function showNotificationToast(notification) {
     if (!toast || !document.querySelector('#lsNotificationCenter')?.hidden) return;
     clearTimeout(notificationToastTimer);
     toast.className = `is-${notification.type}`;
+    toast.title = `${notification.title}\n${notification.message}`;
     toast.querySelector('strong').textContent = notification.title;
     toast.querySelector('span').textContent = notification.message;
     toast.hidden = false;
@@ -2941,6 +2945,9 @@ function addCoBlocksNotification({ type = 'success', title, message, action = nu
     updateNotificationBadge();
     renderNotificationCenter();
     showNotificationToast(notification);
+    isPingEnabled().then(enabled => {
+        if (enabled) playSound(pingUrl);
+    });
 }
 
 function closeNotificationCenter() {
@@ -4379,10 +4386,6 @@ const ChatHTML = `
 // msg: {text, sender}
 lastSender = '';
 uname = '';
-let pingUrl;
-chrome.runtime.sendMessage(exId, { meta: 'getUrl', for: '/sounds/ping.mp3' }, url => {
-    pingUrl = url;
-});
 // credit https://stackoverflow.com/questions/2794137/sanitizing-user-input-before-adding-it-to-the-dom-in-javascript
 function sanitize(string) {
     string = String(string);
@@ -4505,20 +4508,19 @@ async function addMessage(msg, notif) {
         if (!isChatOpen() || !document.hasFocus()) {
             liveMessage({ meta: 'chatnotif', project: store.getState().preview.projectInfo.title, sender: msg.sender, text: msg.text, avatar: (await getUserInfo(msg.sender)).pic });
         }
-        if (await isPingEnabled()) {
-            playSound(pingUrl);
-        }
     }
 }
 
 function isPingEnabled() {
     return new Promise(ret =>
-        chrome.runtime.sendMessage(exId, { meta: 'isPingEnabled' }, ret),
+        chrome.runtime.sendMessage(exId, { meta: 'isPingEnabled' }, enabled => {
+            ret(!chrome.runtime.lastError && enabled === true);
+        }),
     );
 }
 function playSound(url) {
     const a = new Audio(url);
-    a.play();
+    a.play().catch(() => {}); // Browsers may block audio until the user interacts with the page.
 }
 
 function postMessageBubble() {
