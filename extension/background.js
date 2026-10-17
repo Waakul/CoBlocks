@@ -113,6 +113,36 @@ async function getApiUrl() {
     return addApiPrefix(serverUrl || 'https://livescratchapi.waakul.com');
 }
 
+function getCollaborationInvite(url) {
+    try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.origin !== 'https://scratch.mit.edu') return null;
+        const projectId = parsedUrl.searchParams.get('coblocksProject');
+        const token = parsedUrl.searchParams.get('coblocksInvite');
+        if (!/^\d+$/.test(projectId || '') || !token) return null;
+        return { projectId, token };
+    } catch {
+        return null;
+    }
+}
+
+// Register this listener synchronously. Scratch may replace /create?... before
+// the rest of the service worker has finished loading.
+const queuedInviteNavigations = new Map();
+let processInviteNavigation = null;
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const invite = getCollaborationInvite(changeInfo.url);
+    if (!invite) return;
+    const navigation = { tabId, tab, ...invite };
+    if (processInviteNavigation) {
+        processInviteNavigation(navigation).catch(error => {
+            console.error('Could not accept the collaboration invite:', error);
+        });
+    } else {
+        queuedInviteNavigations.set(tabId, navigation);
+    }
+});
+
 let apiUrl;
 
 getApiUrl()
@@ -175,6 +205,7 @@ async function backgroundScript() {
     const newProjects = {}; // tabId (or 'newtab') -> lsId
     const tabCallbacks = {}; // tabId -> callback function
     const pendingTabInitializations = {};
+    const inviteAcceptances = new Map();
 
     function getProjectId(url) {
         if (projectsPageTester.test(url)) {
@@ -206,6 +237,67 @@ async function backgroundScript() {
                     callback({ meta: 'initCoBlocks', lsId });
                 } else pendingTabInitializations[tab.id] = lsId;
             }
+        }
+    }
+
+    async function acceptInvite(projectId, token, tabId, initialUrl) {
+        const pending = inviteAcceptances.get(tabId);
+        if (pending?.projectId === projectId && pending.token === token) return pending.promise;
+
+        const promise = (async () => {
+            const username = await refreshUsername(true);
+            if (!username || username === '*' || !currentCoBlocksToken) {
+                return { ok: false, status: 401, error: 'Sign in to CoBlocks before accepting this invite.' };
+            }
+
+            const response = await authenticatedFetch(`${apiUrl}/invite/${projectId}/accept`, {
+                method: 'POST',
+                headers: { authorization: currentCoBlocksToken, uname: username, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return {
+                    ok: false,
+                    status: response.status,
+                    error: data.err || (data.noauth ? 'Sign in to CoBlocks before accepting this invite.' : 'Could not accept the invite.'),
+                };
+            }
+
+            if (!tabId) return { ok: true, ...data };
+            if (data.scratchId) {
+                await chrome.tabs.update(tabId, { url: `https://scratch.mit.edu/projects/${data.scratchId}/editor` });
+                return { ok: true, ...data };
+            }
+
+            let currentTab = null;
+            try {
+                currentTab = await chrome.tabs.get(tabId);
+            } catch {
+                // The invite was accepted even if its tab has since closed.
+            }
+            const currentScratchId = getProjectId(currentTab?.url || initialUrl);
+            if (!currentScratchId) {
+                newProjects[tabId] = data.projectId;
+                return { ok: true, ...data };
+            }
+
+            const linkResponse = await authenticatedFetch(`${apiUrl}/linkScratch/${currentScratchId}/${data.projectId}/${username}`, {
+                method: 'PUT',
+                headers: { authorization: currentCoBlocksToken },
+            });
+            if (!linkResponse.ok) {
+                const linkError = await linkResponse.json().catch(() => ({}));
+                return { ok: false, status: linkResponse.status, error: linkError.err || 'Could not link the new Scratch project.' };
+            }
+            return { ok: true, ...data, scratchId: currentScratchId };
+        })();
+
+        inviteAcceptances.set(tabId, { projectId, token, promise });
+        try {
+            return await promise;
+        } finally {
+            if (inviteAcceptances.get(tabId)?.promise === promise) inviteAcceptances.delete(tabId);
         }
     }
 
@@ -420,6 +512,23 @@ async function backgroundScript() {
 
     // Listen for Project load
     const projectsPageTester = /^https:\/\/scratch\.mit\.edu\/projects\/\d+/;
+    processInviteNavigation = async navigation => {
+        const result = await acceptInvite(
+            navigation.projectId,
+            navigation.token,
+            navigation.tabId,
+            navigation.tab?.url,
+        );
+        if (!result.ok) console.warn('Could not accept the collaboration invite:', result.error);
+    };
+    const savedInviteNavigations = [...queuedInviteNavigations.values()];
+    queuedInviteNavigations.clear();
+    savedInviteNavigations.forEach(navigation => {
+        processInviteNavigation(navigation).catch(error => {
+            console.error('Could not accept the collaboration invite:', error);
+        });
+    });
+
     chrome.tabs.onUpdated.addListener(async function (tabId, changeInfo, tab) {
         if (changeInfo.url?.startsWith('https://scratch.mit.edu/')) { refreshUsername().catch(console.error); }
         if (changeInfo.url) {
@@ -686,31 +795,7 @@ async function backgroundScript() {
                     }
                 } else if (request.meta === 'acceptInvite') {
                     try {
-                        const username = await refreshUsername(true);
-                        const response = await authenticatedFetch(`${apiUrl}/invite/${request.id}/accept`, {
-                            method: 'POST',
-                            headers: { authorization: currentCoBlocksToken, uname: username, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ token: request.token }),
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        if (response.ok && !data.scratchId && sender.tab?.id) {
-                            const currentScratchId = getProjectId(sender.tab.url);
-                            if (currentScratchId) {
-                                const linkResponse = await authenticatedFetch(`${apiUrl}/linkScratch/${currentScratchId}/${data.projectId}/${username}`, {
-                                    method: 'PUT',
-                                    headers: { authorization: currentCoBlocksToken },
-                                });
-                                if (!linkResponse.ok) {
-                                    const linkError = await linkResponse.json().catch(() => ({}));
-                                    sendResponse({ ok: false, status: linkResponse.status, error: linkError.err || 'Could not link the new Scratch project.' });
-                                    return;
-                                }
-                                data.scratchId = currentScratchId;
-                            } else {
-                                newProjects[sender.tab.id] = data.projectId;
-                            }
-                        }
-                        sendResponse(response.ok ? { ok: true, ...data } : { ok: false, status: response.status, error: data.err || (data.noauth ? 'Sign in to CoBlocks before accepting this invite.' : 'Could not accept the invite.') });
+                        sendResponse(await acceptInvite(request.id, request.token, sender.tab?.id, sender.tab?.url));
                     } catch {
                         sendResponse({ ok: false, error: 'Could not reach the CoBlocks server.' });
                     }
