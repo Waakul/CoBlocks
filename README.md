@@ -73,6 +73,13 @@ To copy the shared package into `dist/coblocks`, run:
 node scripts/build-extension.mjs
 ```
 
+To rebuild the bundled Socket.IO client without a string evaluation fallback:
+
+```sh
+npm ci --prefix scripts
+npm run build:socket --prefix scripts
+```
+
 Both browsers use the same manifest, collaboration code, and assets. Chrome loads the service worker; Firefox loads the background scripts. The content-script bridge handles Firefox's page messaging. Generated builds stay out of Git.
 
 ## Project structure

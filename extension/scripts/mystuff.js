@@ -58,96 +58,67 @@ function sendLeave(scratchId, lsId) {
     }
 }
 
-function sanitize(string) {
-    string = String(string);
-    // if(!(_.isString(string))) {return ''}
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        '\'': '&#x27;',
-        '/': '&#x2F;',
-    };
-    const reg = /[&<>"'/]/ig;
-    return string.replace(reg, (match) => (map[match]));
-}
-
 function validScratchUsername(username) {
     return typeof username === 'string' && /^[a-zA-Z0-9_-]{3,20}$/.test(username);
 }
 
-function getbox(lsId, title, scratchId, lastModified, lastModBy, projectExists, online) {
-    scratchId = sanitize(scratchId);
-    title = sanitize(title);
-    lsId = sanitize(lsId);
-    lastModBy = sanitize(lastModBy);
-
-    const gunkId = Math.random().toString(36).substring(2);
-    generateActiveUsersPanel(online).then(panel => {
-        const container = document.getElementById(gunkId);
-        if (container) container.innerHTML = panel;
-    });
-
-    return `
-    <div class="media-item-content not-shared">
-      <div class="media-thumb">
-        <a href="/projects/${scratchId}/">
-          <img src="//cdn2.scratch.mit.edu/get_image/project/${scratchId}_100x80.png">
-        </a>
-      </div>
-      <div class="media-info">
-        <span class="media-info-item title"><a style="color:rgb(88, 193, 152)" href="/projects/${scratchId}/">${title}</a></span>
-      	<span class="media-info-item date shortDateFormat">
-        
-          Last modified: ${timeSince(new Date(lastModified))} ago by ${lastModBy}
-          
-        </span>
-      <div class="seeInsideContainer">
-
-      <a href="/projects/${scratchId}/#editor" data-control="edit" class="media-control-edit small button grey">
-	     
-      <span>See inside</span>
-      <div class="activeContainer" id="${gunkId}"></div>
-
-      </a>
-
-        </div>
-
-      </div>
-      <div class="media-action">
-		      <div><a class="media-trash" style="color:rgb(88, 193, 152)">${projectExists ? 'Unlink' : 'Leave'}</a></div>
-      </div>
-    </div>`;
+function projectElement(tag, className, text) {
+    const element = document.createElement(tag);
+    element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
 }
 
+function getbox(title, scratchId, lastModified, lastModBy, projectExists, online) {
+    const id = /^\d+$/.test(String(scratchId)) ? String(scratchId) : '0';
+    const content = projectElement('div', 'media-item-content not-shared');
+    const thumbnail = projectElement('div', 'media-thumb');
+    const imageLink = document.createElement('a');
+    imageLink.href = `/projects/${id}/`;
+    const image = document.createElement('img');
+    image.src = `https://cdn2.scratch.mit.edu/get_image/project/${id}_100x80.png`;
+    imageLink.append(image);
+    thumbnail.append(imageLink);
 
-async function generateActiveUsersPanel(active) {
-    const safeUsers = Array.isArray(active) ? active.filter(validScratchUsername) : [];
-    if (safeUsers.length > 0) {
-        safeUsers.forEach(username => getUserInfo(username).then(info => {
-            if (!info?.pic) return;
-            document.querySelectorAll(`.${username}`).forEach(elem => elem.style.backgroundImage = `url(${info.pic})`);
-        }));
-        return `
-      <div class="activeContainer">
+    const info = projectElement('div', 'media-info');
+    const heading = projectElement('span', 'media-info-item title');
+    const link = document.createElement('a');
+    link.href = imageLink.href;
+    link.style.color = 'rgb(88, 193, 152)';
+    link.textContent = title;
+    heading.append(link);
+    const modified = projectElement('span', 'media-info-item date shortDateFormat',
+        `Last modified: ${timeSince(new Date(lastModified))} ago by ${lastModBy}`);
+    const controls = projectElement('div', 'seeInsideContainer');
+    const edit = projectElement('a', 'media-control-edit small button grey');
+    edit.href = `/projects/${id}/#editor`;
+    edit.dataset.control = 'edit';
+    edit.append(projectElement('span', '', 'See inside'), generateActiveUsersPanel(online));
+    controls.append(edit);
+    info.append(heading, modified, controls);
 
-        ${safeUsers.map(username =>
-        `<div class="onlineBubble ${username}" style="background-color: white; --bubbleUsername:'${sanitize(username)}'"></div>`,
-    )
-        .join('\n')}
-     
-          
-       
+    const actions = projectElement('div', 'media-action');
+    const action = document.createElement('div');
+    const leave = projectElement('a', 'media-trash', projectExists ? 'Unlink' : 'Leave');
+    leave.style.color = 'rgb(88, 193, 152)';
+    action.append(leave);
+    actions.append(action);
+    content.append(thumbnail, info, actions);
+    return content;
+}
 
-        
-            
-      </div>
-    `;
-
-    } else {
-        return '';
+function generateActiveUsersPanel(active) {
+    const container = projectElement('div', 'activeContainer');
+    for (const username of Array.isArray(active) ? active.filter(validScratchUsername) : []) {
+        const avatar = projectElement('div', 'onlineBubble');
+        avatar.style.backgroundColor = 'white';
+        avatar.style.setProperty('--bubbleUsername', `"${username}"`);
+        container.append(avatar);
+        getUserInfo(username).then(info => {
+            if (info?.pic) avatar.style.backgroundImage = `url(${info.pic})`;
+        });
     }
+    return container;
 }
 
 const pageCss = `
@@ -303,7 +274,7 @@ async function convertToCoBlocks(listItem, projectObj) {
 
     const seeInside = listItem.querySelector('a span');
     const activeUsersPanel = await generateActiveUsersPanel(projectObj.online);
-    seeInside.insertAdjacentHTML('afterend', activeUsersPanel);
+    seeInside.after(activeUsersPanel);
 
 
 }
@@ -322,7 +293,7 @@ function removeCoBlocksProjectState(scratchId, listItem) {
 function addProject(projectObj, projectExists) {
     const newBox = document.createElement('li');
     newBox.className = 'ls-project-row';
-    newBox.innerHTML = getbox(projectObj.lsId, projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online);
+    newBox.append(getbox(projectObj.title, projectObj.scratchId, projectObj.lastTime, projectObj.lastUser, projectExists, projectObj.online));
     newBox.querySelector('.media-trash')?.addEventListener('click', () => {
         leaveId(projectObj.scratchId, newBox);
         sendLeave(projectObj.scratchId, projectObj.lsId);
@@ -450,14 +421,21 @@ onTabLoad();
 let LSVon = false;
 function addHideCoBlocksButton(on) {
     LSVon = on;
-    const innerds = on ? 'Hide Verify ^' : 'Show Verify';
     document.getElementById('hideBLButton')?.remove();
-    document.querySelector('#main-content > div.action-bar.scroll > div > div').insertAdjacentHTML('afterend', `
-    <span class="hideButton" id="hideBLButton" style="text-decoration:underline; cursor:pointer;
-  color:lightblue" onclick="(()=>{window.coBlocksRuntime.sendMessage(exId,{meta:'dontShowVerifyError',val:${!on}}); toggleHideCoBlocks()})();">${innerds}</span>`);
+    const button = projectElement('span', 'hideButton', on ? 'Hide Verify ^' : 'Show Verify');
+    button.id = 'hideBLButton';
+    button.style.cssText = 'text-decoration:underline;cursor:pointer;color:lightblue';
+    button.onclick = () => {
+        window.coBlocksRuntime.sendMessage(exId, { meta: 'dontShowVerifyError', val: !on });
+        toggleHideCoBlocks();
+    };
+    document.querySelector('#main-content > div.action-bar.scroll > div > div').after(button);
 
     document.getElementById('lsBannerCSS')?.remove();
-    document.head.insertAdjacentHTML('afterbegin', on ? '<style id="lsBannerCSS">.lsBanner{display:default}</style>' : '<style id="lsBannerCSS">.lsBanner{display:none}</style>');
+    const style = document.createElement('style');
+    style.id = 'lsBannerCSS';
+    style.textContent = on ? '' : '.lsBanner { display: none; }';
+    document.head.prepend(style);
 
 }
 function toggleHideCoBlocks() {

@@ -2238,53 +2238,7 @@ function outlineBlock(blockId, username) {
 
 
 /////........................ GUI INJECTS .........................//////
-const shareDropdown = `
-<div class="ls-collab-panel" role="dialog" aria-label="CoBlocks collaboration">
-    <div class="ls-collab-header">
-        <div class="ls-collab-brand"><img src="${logoUrl}" alt=""></div>
-        <div class="ls-collab-heading">
-            <strong>Collaboration</strong>
-            <span>Manage this CoBlocks project</span>
-        </div>
-        <button class="ls-icon-button" type="button" aria-label="Close" onclick="lsDropdown.style.display='none';coblocksButton.setAttribute('aria-expanded','false')">&times;</button>
-    </div>
-    <div class="ls-collab-stats" aria-live="polite">
-        <span><strong id="lsCollabCount">0</strong> <span id="lsPeopleLabel">people</span></span>
-        <span><i class="ls-online-dot"></i><strong id="lsOnlineCount">0</strong> online</span>
-    </div>
-    <div class="ls-section-heading">
-        <div><strong>Project access</strong><span>People who can edit with you</span></div>
-        <button class="ls-text-button" type="button" onclick="refreshShareModal(true)">Refresh</button>
-    </div>
-    <div id="lsSharedList" class="ls-shared-list">
-        <div id="lsModalExample" class="ls-collab-member" hidden>
-            <span class="ls-member-avatar"><i class="ls-member-presence"></i></span>
-            <button class="sharedName ls-member-name" type="button"></button>
-            <span class="ls-member-role">Collaborator</span>
-            <button class="ls-remove-collaborator" type="button" aria-label="Remove collaborator">&times;</button>
-        </div>
-        <div id="lsEmptyCollaborators" class="ls-empty-state">No collaborators yet</div>
-    </div>
-    <div class="ls-divider"></div>
-    <label class="ls-add-label" for="searchy"><strong>Add a collaborator</strong><span>Enter their exact Scratch username</span></label>
-    <div class="ls-search-wrap">
-        <input id="searchy" type="search" autocomplete="off" spellcheck="false" placeholder="Scratch username" aria-label="Scratch username">
-        <span id="lsSearchSpinner" class="ls-mini-spinner" hidden></span>
-    </div>
-    <button class="result ls-search-result" type="button" id="resultt" hidden>
-        <span id="resultPic" class="ls-result-avatar"></span>
-        <span class="ls-result-copy"><strong id="resultName"></strong><small>Click to add</small></span>
-        <span id="plus" class="ls-result-add">+</span>
-    </button>
-    <div id="lsShareStatus" class="ls-share-status" role="status" aria-live="polite"></div>
-    <div class="ls-collab-actions">
-        <button type="button" class="ls-secondary-button" onclick="copyCollaborationInvite()">Copy invite link</button>
-        <button type="button" class="ls-secondary-button" onclick="revokeCollaborationInvite()">Revoke invite</button>
-        <button type="button" class="ls-danger-button" onclick="unlinkCoBlocks()">Unlink project</button>
-    </div>
-</div>
 
-`;
 const shareScript = `{
 window.lsSearchName = document.querySelector('#resultName');
 window.lsSearchResult = document.querySelector('#resultt');
@@ -2823,15 +2777,24 @@ let notificationToastTimer;
 let notificationToastAnimation;
 
 function notificationIcon(type) {
-    const icons = {
-        bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path>',
-        chat: '<path d="M4 5.5h16v11H9l-5 3v-14Z"></path><path d="M8 10h8M8 13h5"></path>',
-        join: '<circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M18 7v6M15 10h6"></path>',
-        leave: '<circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M15 10h6"></path>',
-        error: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 17h.01"></path>',
-        success: '<circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16.5 9"></path>',
+    const shapes = {
+        bell: [['path', { d: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4' }]],
+        chat: [['path', { d: 'M4 5.5h16v11H9l-5 3v-14ZM8 10h8M8 13h5' }]],
+        join: [['circle', { cx: 9, cy: 8, r: 3 }], ['path', { d: 'M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M18 7v6M15 10h6' }]],
+        leave: [['circle', { cx: 9, cy: 8, r: 3 }], ['path', { d: 'M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M15 10h6' }]],
+        error: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7v6M12 17h.01' }]],
+        success: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'm8 12 2.5 2.5L16.5 9' }]],
     };
-    return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[type] || icons.success}</svg>`;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', 'aria-hidden': 'true', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) {
+        svg.setAttribute(key, value);
+    }
+    for (const [tag, attributes] of shapes[type] || shapes.success) {
+        const shape = document.createElementNS(svg.namespaceURI, tag);
+        for (const [key, value] of Object.entries(attributes)) shape.setAttribute(key, value);
+        svg.append(shape);
+    }
+    return svg;
 }
 
 function createNotificationsButton(shareButton) {
@@ -2842,7 +2805,11 @@ function createNotificationsButton(shareButton) {
     button.setAttribute('aria-label', 'Open CoBlocks notifications');
     button.setAttribute('aria-expanded', 'false');
     button.title = 'CoBlocks notifications';
-    button.innerHTML = `${notificationIcon('bell')}<span class="ls-notification-badge" hidden>0</span>`;
+    const badge = document.createElement('span');
+    badge.className = 'ls-notification-badge';
+    badge.hidden = true;
+    badge.textContent = '0';
+    button.append(notificationIcon('bell'), badge);
     button.onclick = toggleNotificationCenter;
     return button;
 }
@@ -2977,8 +2944,9 @@ function renderNotificationCenter() {
         item.className = `ls-notification-item is-${notification.type}`;
         item.title = `${notification.title}\n${notification.message}`;
         item.innerHTML = `
-            <span class="ls-notification-icon">${notificationIcon(notification.type)}</span>
+            <span class="ls-notification-icon"></span>
             <span class="ls-notification-copy"><strong></strong><span></span><time></time></span>`;
+        item.querySelector('.ls-notification-icon').append(notificationIcon(notification.type));
         item.querySelector('strong').textContent = notification.title;
         item.querySelector('.ls-notification-copy > span').textContent = notification.message;
         item.querySelector('time').textContent = notification.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -3635,14 +3603,14 @@ function addToCredits(text) {
 }
 
 function showBlStartError(err) {
-    const rand = `a${Math.random().toString().substring(2)}`;
-    // stop spinny
     document.querySelector('loader.livescratchloader').style.display = 'none';
-
     document.querySelector('.lsErr')?.remove();
-    document.querySelector('livescratchcontainer > livescratch-init').insertAdjacentHTML('afterend', `<div class="${rand} lsErr" style="background:#ffcdf2; outline:3px solid red; padding:4px; position:absolute; top:50px; border-radius:12px; color:red"></div>`);
-    document.querySelector('.lsErr').innerText = `There was an error:\n ${err}`;
-    setTimeout(() => { document.querySelector(`.lsErr.${rand}`)?.remove(); }, 5000);
+    const error = document.createElement('div');
+    error.className = 'lsErr';
+    error.style.cssText = 'background:#ffcdf2;outline:3px solid red;padding:4px;position:absolute;top:50px;border-radius:12px;color:red';
+    error.textContent = `There was an error:\n ${err}`;
+    document.querySelector('livescratchcontainer > livescratch-init').after(error);
+    setTimeout(() => error.remove(), 5000);
 
 }
 
@@ -3741,7 +3709,54 @@ function addButtonInjectors() {
             const notificationToast = createNotificationToast();
             coblocksButton = button;
             const dropdown = document.createElement('livescratchDropdown');
-            dropdown.innerHTML = shareDropdown;
+            dropdown.innerHTML = `
+<div class="ls-collab-panel" role="dialog" aria-label="CoBlocks collaboration">
+    <div class="ls-collab-header">
+        <div class="ls-collab-brand"><img src="" alt=""></div>
+        <div class="ls-collab-heading">
+            <strong>Collaboration</strong>
+            <span>Manage this CoBlocks project</span>
+        </div>
+        <button class="ls-icon-button" type="button" aria-label="Close" onclick="lsDropdown.style.display='none';coblocksButton.setAttribute('aria-expanded','false')">&times;</button>
+    </div>
+    <div class="ls-collab-stats" aria-live="polite">
+        <span><strong id="lsCollabCount">0</strong> <span id="lsPeopleLabel">people</span></span>
+        <span><i class="ls-online-dot"></i><strong id="lsOnlineCount">0</strong> online</span>
+    </div>
+    <div class="ls-section-heading">
+        <div><strong>Project access</strong><span>People who can edit with you</span></div>
+        <button class="ls-text-button" type="button" onclick="refreshShareModal(true)">Refresh</button>
+    </div>
+    <div id="lsSharedList" class="ls-shared-list">
+        <div id="lsModalExample" class="ls-collab-member" hidden>
+            <span class="ls-member-avatar"><i class="ls-member-presence"></i></span>
+            <button class="sharedName ls-member-name" type="button"></button>
+            <span class="ls-member-role">Collaborator</span>
+            <button class="ls-remove-collaborator" type="button" aria-label="Remove collaborator">&times;</button>
+        </div>
+        <div id="lsEmptyCollaborators" class="ls-empty-state">No collaborators yet</div>
+    </div>
+    <div class="ls-divider"></div>
+    <label class="ls-add-label" for="searchy"><strong>Add a collaborator</strong><span>Enter their exact Scratch username</span></label>
+    <div class="ls-search-wrap">
+        <input id="searchy" type="search" autocomplete="off" spellcheck="false" placeholder="Scratch username" aria-label="Scratch username">
+        <span id="lsSearchSpinner" class="ls-mini-spinner" hidden></span>
+    </div>
+    <button class="result ls-search-result" type="button" id="resultt" hidden>
+        <span id="resultPic" class="ls-result-avatar"></span>
+        <span class="ls-result-copy"><strong id="resultName"></strong><small>Click to add</small></span>
+        <span id="plus" class="ls-result-add">+</span>
+    </button>
+    <div id="lsShareStatus" class="ls-share-status" role="status" aria-live="polite"></div>
+    <div class="ls-collab-actions">
+        <button type="button" class="ls-secondary-button" onclick="copyCollaborationInvite()">Copy invite link</button>
+        <button type="button" class="ls-secondary-button" onclick="revokeCollaborationInvite()">Revoke invite</button>
+        <button type="button" class="ls-danger-button" onclick="unlinkCoBlocks()">Unlink project</button>
+    </div>
+</div>
+
+`;
+            dropdown.querySelector('img').src = logoUrl;
             dropdown.style.position = 'absolute';
             dropdown.style.top = '44px';
             dropdown.style.right = '10px';
@@ -4105,12 +4120,7 @@ setTimeout(reloadOnlineUsers, 500);
 
 //////////////////// LOADING OVERLAY ////////////////////
 
-const overlayHTML = `
-<loading-content>
-<img src="${logoUrl}" id="ls-load-logo">
-<div class="ls-loading-text">Loading CoBlocks...</div>
-</loading-content>
-</img>`;
+
 const overlayCSS = `
 loading-content{
     display: flex;
@@ -4187,11 +4197,17 @@ function startBLLoadingAnimation() {
 function injectLoadingOverlay() {
     try {
         const styleInj = document.createElement('style');
-        styleInj.innerHTML = overlayCSS;
+        styleInj.textContent = overlayCSS;
         document.head.appendChild(styleInj);
 
         const loadingOverlay = document.createElement('livescratch-loading');
-        loadingOverlay.innerHTML = overlayHTML;
+        loadingOverlay.innerHTML = `
+<loading-content>
+<img src="" id="ls-load-logo">
+<div class="ls-loading-text">Loading CoBlocks...</div>
+</loading-content>
+`;
+        loadingOverlay.querySelector('img').src = logoUrl;
         document.body.appendChild(loadingOverlay);
 
     } catch (e) { console.error(e); }
@@ -4505,33 +4521,38 @@ ls-chat.popout { min-width: 300px; min-height: 320px; border-radius: 14px; box-s
 function injectChatCSS() {
     try {
         const styleInj = document.createElement('style');
-        styleInj.innerHTML = chatCss;
+        styleInj.textContent = chatCss;
         document.head.appendChild(styleInj);
     } catch (e) { console.error(e); }
 }
 
-function injectEmojiOne() {
-    try {
-        const linkStylesheet = document.createElement('link');
-        linkStylesheet.rel = 'stylesheet';
-        linkStylesheet.href = 'https://cdnjs.cloudflare.com/ajax/libs/emojione/4.5.0/assets/css/emojione.min.css';
-
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/emojione/4.5.0/lib/js/emojione.min.js';
-
-        document.head.appendChild(linkStylesheet);
-        document.head.appendChild(script);
-    } catch (e) { console.error(e); }
-}
 
 function addChat() {
     try {
         injectChatCSS();
-        injectEmojiOne();
 
         const lsChat = document.createElement('ls-chat');
         lsChat.id = 'ls-chat';
-        lsChat.innerHTML = ChatHTML;
+        lsChat.innerHTML = `
+<ls-chat-head id="ls-chat-banner">
+    <img id="logo" src="" style="height: 25px; margin-right: 5px;">
+    <ls-chat-head-text>CoBlocks Chat</ls-chat-head-text>
+    <ls-chat-head-filler></ls-chat-head-filler>
+    <ls-chat-head-button id="popout" style="background-color: #1d376b;">
+        <img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2224px%22%20viewBox%3D%220%20-960%20960%20960%22%20width%3D%2224px%22%20fill%3D%22%23FFFFFF%22%3E%3Cpath%20d%3D%22M80.09-80.09v-799.82h412.13v122.95H203.04v553.92h553.92v-289.18h122.95v412.13H80.09Zm323.56-238.26-85.3-85.3%20353.3-353.31h-99.43v-122.95h307.69v307.69H756.96v-99.43l-353.31%20353.3Z%22%2F%3E%3C%2Fsvg%3E" style="height: 100%;">
+    </ls-chat-head-button>
+    <ls-chat-head-button onclick="toggleChat(false)">
+        <img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2224px%22%20viewBox%3D%220%20-960%20960%20960%22%20width%3D%2224px%22%20fill%3D%22%23FFFFFF%22%3E%3Cpath%20d%3D%22m254-159-94-95%20225-226-225-226%2094-96%20226%20226%20226-226%2094%2096-225%20226%20225%20226-94%2095-226-226-226%20226Z%22%2F%3E%3C%2Fsvg%3E" style="height: 100%;">
+    </ls-chat-head-button>
+</ls-chat-head>
+<ls-chat-msgs>
+    <ls-msg-space></ls-msg-space>
+</ls-chat-msgs>
+<ls-chat-send>
+    <ls-chat-input contenteditable="true" role="textbox" aria-label="Chat message" data-placeholder="Write a message..."></ls-chat-input>
+    <ls-chat-send-button><img src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' height='24px' viewBox='0 -960 960 960' width='24px' fill='%23FFFFFF'%3E%3Cpath d='M176-183q-20 8-38-3.5T120-220v-180l320-80-320-80v-180q0-22 18-33.5t38-3.5l616 260q25 11 25 37t-25 37L176-183Z'/%3E%3C/svg%3E" style="height: auto; flex-grow: 0;"></ls-chat-send-button>
+</ls-chat-send>`;
+        lsChat.querySelector('img').src = logoUrl;
         // lsChat.style.visibility = 'hidden'
         const parentContainer = document.body.querySelector('#app').querySelector('.box_box_bP3Aq').querySelector('.gui_flex-wrapper_Zk207');
         parentContainer.insertBefore(lsChat, parentContainer.childNodes[1]);
@@ -4600,133 +4621,77 @@ function setChatUnread(num) {
     chatdot.style.visibility = num === 0 ? 'hidden' : 'visible';
 }
 
-const ChatHTML = `
-<ls-chat-head id="ls-chat-banner">
-    <img id="logo" src="${logoUrl}" style="height: 25px; margin-right: 5px;">
-    <ls-chat-head-text>CoBlocks Chat</ls-chat-head-text>
-    <ls-chat-head-filler></ls-chat-head-filler>
-    <ls-chat-head-button id="popout" style="background-color: #1d376b;">
-        <img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2224px%22%20viewBox%3D%220%20-960%20960%20960%22%20width%3D%2224px%22%20fill%3D%22%23FFFFFF%22%3E%3Cpath%20d%3D%22M80.09-80.09v-799.82h412.13v122.95H203.04v553.92h553.92v-289.18h122.95v412.13H80.09Zm323.56-238.26-85.3-85.3%20353.3-353.31h-99.43v-122.95h307.69v307.69H756.96v-99.43l-353.31%20353.3Z%22%2F%3E%3C%2Fsvg%3E" style="height: 100%;">
-    </ls-chat-head-button>
-    <ls-chat-head-button onclick="toggleChat(false)">
-        <img src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20height%3D%2224px%22%20viewBox%3D%220%20-960%20960%20960%22%20width%3D%2224px%22%20fill%3D%22%23FFFFFF%22%3E%3Cpath%20d%3D%22m254-159-94-95%20225-226-225-226%2094-96%20226%20226%20226-226%2094%2096-225%20226%20225%20226-94%2095-226-226-226%20226Z%22%2F%3E%3C%2Fsvg%3E" style="height: 100%;">
-    </ls-chat-head-button>
-</ls-chat-head>
-<ls-chat-msgs>
-    <ls-msg-space></ls-msg-space>
-</ls-chat-msgs>
-<ls-chat-send>
-    <ls-chat-input contenteditable="true" role="textbox" aria-label="Chat message" data-placeholder="Write a message..."></ls-chat-input>
-    <ls-chat-send-button><img src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' height='24px' viewBox='0 -960 960 960' width='24px' fill='%23FFFFFF'%3E%3Cpath d='M176-183q-20 8-38-3.5T120-220v-180l320-80-320-80v-180q0-22 18-33.5t38-3.5l616 260q25 11 25 37t-25 37L176-183Z'/%3E%3C/svg%3E" style="height: auto; flex-grow: 0;"></ls-chat-send-button>
-</ls-chat-send>`;
+
 
 
 // msg: {text, sender}
 lastSender = '';
 uname = '';
 // credit https://stackoverflow.com/questions/2794137/sanitizing-user-input-before-adding-it-to-the-dom-in-javascript
-function sanitize(string) {
-    string = String(string);
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        '\'': '&#x27;',
-        '/': '&#x2F;',
+const chatEmojis = {
+    smiley: '😃', sob: '😭', skull: '💀', laughing: '😆', rofl: '🤣', joy: '😂',
+    stuck_out_tongue_closed_eyes: '😝', stuck_out_tongue_winking_eye: '😜', cry: '😢',
+    sunglasses: '😎', thumbsup: '👍', thumbsdown: '👎', neutral_face: '😐',
+    exploding_head: '🤯', fire: '🔥', white_check_mark: '✅', pray: '🙏', x: '❌',
+    confused: '😕', question: '❓', scream: '😱', smirk: '😏', bangbang: '‼️',
+    moyai: '🗿', nerd: '🤓',
+};
+
+function renderChatMessage(element, text, linkify) {
+    const customEmojis = {
+        waakul: 'https://cdn2.scratch.mit.edu/get_image/user/128606483_60x60.png',
+        coblocks: logoUrl,
+        livescratch: logoUrl,
     };
-    const reg = /[&<>"'/]/ig;
-    return string.replace(reg, (match) => (map[match]));
+    const tokens = String(text).split(/(https?:\/\/[^\s<>]+|:[a-zA-Z0-9_+-]+:)/g);
+    const emojiOnly = tokens.every(token => !token.trim()
+        || (token.startsWith(':') && (chatEmojis[token.slice(1, -1)] || customEmojis[token.slice(1, -1)])));
+    for (const token of tokens) {
+        const name = token.startsWith(':') && token.endsWith(':') ? token.slice(1, -1) : '';
+        if (customEmojis[name]) {
+            const image = document.createElement('img');
+            image.src = customEmojis[name];
+            image.alt = token;
+            image.className = 'emojione';
+            image.style.height = emojiOnly ? '30px' : '20px';
+            element.append(image);
+        } else if (chatEmojis[name]) {
+            const emoji = document.createElement('span');
+            emoji.textContent = chatEmojis[name];
+            if (emojiOnly) emoji.style.fontSize = '30px';
+            element.append(emoji);
+        } else if (linkify && /^https?:\/\//.test(token)) {
+            const link = document.createElement('a');
+            link.href = token;
+            link.textContent = token;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            element.append(link);
+        } else {
+            element.append(document.createTextNode(token));
+        }
+    }
 }
 
 async function addMessage(msg, notif) {
     const msgsElem = document.querySelector('ls-chat-msgs');
     if (msg.sender !== lastSender) {
         const unameElem = document.createElement('ls-msg-sender');
-        unameElem.innerHTML = `
-        <ls-msg-sender-img></ls-msg-sender-img>
-        <ls-msg-sender-name>${sanitize(msg.sender)}</ls-msg-sender-name>`;
+        const avatar = document.createElement('ls-msg-sender-img');
+        const name = document.createElement('ls-msg-sender-name');
+        name.textContent = msg.sender;
+        unameElem.append(avatar, name);
         lastSender = msg.sender;
         if (msg.sender === uname) { unameElem.classList.add('mymsg'); }
         msgsElem.appendChild(unameElem);
 
-        { (async() => { unameElem.querySelector('ls-msg-sender-img').style.backgroundImage = `url(${(await getUserInfo(msg.sender)).pic})`; })(); }
+        getUserInfo(msg.sender).then(info => {
+            if (info?.pic) avatar.style.backgroundImage = `url(${info.pic})`;
+        });
     }
     const msgElem = document.createElement('ls-msg');
-    msgElem.innerText = msg.text;
-
-    if (msg.linkify) {
-        const newHTML = msgElem.innerHTML.replace(/(<a href=")?((https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)))(">(.*)<\/a>)?/gi, function () {
-            return '<a target="_blank" href="' + arguments[2] + '">' + (arguments[7] || arguments[2]) + '</a>';
-        });
-        msgElem.innerHTML = newHTML;
-    }
-
-    if (msg.sender === uname) { msgElem.classList.add('mymsg'); }
-
-    const emojiWhitelist = [
-        ':smiley:', // 😃
-        ':sob:', // 😭
-        ':skull:', // 💀
-        ':laughing:', // 😆
-        ':rofl:', // 🤣
-        ':joy:', // 😂
-        ':stuck_out_tongue_closed_eyes:', // 😝
-        ':stuck_out_tongue_winking_eye:', // 😜
-        ':cry:', // 😢
-        ':sunglasses:', // 😎
-        ':thumbsup:', // 👍
-        ':thumbsdown:', // 👎
-        ':neutral_face:', // 😐
-        ':exploding_head:', // 🤯
-        ':fire:', // 🔥
-        ':white_check_mark:', // ✅
-        ':pray:', // 🙏
-        ':x:', // ❌
-        ':confused:', // 😕
-        ':question:', // ❓
-        ':scream:', // 😱
-        ':smirk:', // 😏
-        ':bangbang:', // ‼️
-        ':moyai:', // 🗿
-        ':nerd:', // 🤓
-        ':waakul:', // https://cdn2.scratch.mit.edu/get_image/user/128606483_60x60.png Custom Emoji
-        ':coblocks:', // CoBlocks custom emoji
-        ':livescratch:', // Legacy alias
-    ];
-
-    const customEmojis = {
-        ':waakul:': 'https://cdn2.scratch.mit.edu/get_image/user/128606483_60x60.png',
-        ':coblocks:': logoUrl,
-        ':livescratch:': logoUrl,
-    };
-
-    let content = msgElem.innerHTML;
-
-    function convertWhitelistedEmojis(content) {
-        let transformedContent = content.replace(/:([a-zA-Z0-9_+-]+):/g, (match) => {
-            if (emojiWhitelist.includes(match)) {
-                if (customEmojis[match]) {
-                    // Render custom emojis with customEmojis mapping
-                    return `<img src="${customEmojis[match]}" alt="${match}" class="emojione" style="height:20px;">`;
-                }
-                // Render standard emojis with EmojiOne
-                return emojione.shortnameToImage(match);
-            }
-            return match; // Return the original text if not whitelisted
-        });
-
-        // Check if the content consists only of <img> tags and optional spaces
-        if (/^(\s*<img [^>]+>\s*)+$/.test(transformedContent)) {
-            transformedContent = transformedContent.replace(/style="height:20px;"/g, 'style="height:30px;"');
-        }
-
-        return transformedContent;
-    }
-
-    content = convertWhitelistedEmojis(content);
-
-    msgElem.innerHTML = content;
+    renderChatMessage(msgElem, msg.text, msg.linkify);
+    if (msg.sender === uname) msgElem.classList.add('mymsg');
 
     msgsElem.appendChild(msgElem);
 

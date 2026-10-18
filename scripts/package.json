@@ -1,0 +1,12 @@
+{
+  "name": "coblocks-build-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:socket": "node build-socket-client.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "socket.io-client": "4.4.1"
+  }
+}
