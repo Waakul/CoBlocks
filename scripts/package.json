@@ -7,6 +7,6 @@
   },
   "devDependencies": {
     "esbuild": "0.25.12",
-    "socket.io-client": "4.4.1"
+    "socket.io-client": "4.8.4"
   }
 }
