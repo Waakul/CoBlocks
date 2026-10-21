@@ -1,8 +1,8 @@
 {
   "name": "CoBlocks: Live Scratch Collabs!",
   "description": "Create Scratch projects together in real time with CoBlocks.",
-  "version": "1.0.0",
-  "version_name": "1.0.0",
+  "version": "1.1.0",
+  "version_name": "1.1.0",
   "manifest_version": 3,
   "icons": {
     "16": "icon16.png",
