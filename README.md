@@ -80,6 +80,16 @@ npm ci --prefix scripts
 npm run build:socket --prefix scripts
 ```
 
+For store submissions, generate browser-specific manifests:
+
+```sh
+node scripts/build-chromium.mjs
+node scripts/build-firefox.mjs
+```
+
+Upload the contents of `dist/chromium` to the Chrome or Edge store, and
+`dist/firefox` to Mozilla. Each archive must have `manifest.json` at its root.
+
 Both browsers use the same manifest, collaboration code, and assets. Chrome loads the service worker; Firefox loads the background scripts. The content-script bridge handles Firefox's page messaging. Generated builds stay out of Git.
 
 ## Project structure
