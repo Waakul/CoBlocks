@@ -2025,11 +2025,11 @@ const shareCSS = `
 .ls-online-users.is-dense { gap: 2px; }
 .ls-online-label { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; padding-right: 3px; color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .ls-online-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #b5f5ce; }
-.ls-online-user { box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: calc(var(--ls-online-avatar-size, 24px) + 6px); min-width: 0; max-width: 132px; padding: 2px 6px 2px 2px; border: 1px solid var(--ls-user-color); border-radius: 9px; color: var(--coblocks-text, #14264d); background: var(--ls-user-bg); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; transition: box-shadow .15s ease, background .15s ease; }
-.ls-online-user:hover { background: var(--coblocks-surface, #fff); box-shadow: inset 0 0 0 1px var(--ls-user-color); }
+.ls-online-user { box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: calc(var(--ls-online-avatar-size, 24px) + 6px); min-width: 0; max-width: 132px; padding: 2px 6px 2px 2px; border: 1px solid var(--ls-user-color); border-radius: 9px; color: var(--coblocks-text, #14264d); background: color-mix(in srgb, var(--ls-user-color) 12%, var(--coblocks-surface, var(--ls-user-bg))); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; transition: box-shadow .15s ease, background .15s ease; }
+.ls-online-user:hover { background: color-mix(in srgb, var(--ls-user-color) 20%, var(--coblocks-surface, #fff)); box-shadow: inset 0 0 0 1px var(--ls-user-color); }
 .ls-online-user:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .ls-online-avatar { flex: 0 0 var(--ls-online-avatar-size, 24px); width: var(--ls-online-avatar-size, 24px); height: var(--ls-online-avatar-size, 24px); object-fit: cover; border-radius: 6px; background: var(--coblocks-surface, #fff); }
-.ls-online-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-online-name { color: inherit; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #lsOnlineTooltip { position: fixed; z-index: 10000; max-width: min(280px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px; color: #fff; background: #25334d; box-shadow: 0 3px 10px #0003; font: 12px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif; overflow-wrap: anywhere; pointer-events: none; }
 #lsOnlineTooltip[hidden] { display: none; }
 #lsCollaboratorPointers { position: fixed; inset: 0; z-index: 900; overflow: hidden; pointer-events: none; }
