@@ -1,3 +1,13 @@
+async function readFriendsResponse(response) {
+    const data = await response.json();
+    if (response.status === 401 || data?.noauth) return null;
+    if (!response.ok) {
+        throw new Error(typeof data?.err === 'string' ? data.err : 'Could not load your friends. Please try again.');
+    }
+    if (!Array.isArray(data)) throw new Error('The server returned an invalid friends list. Please try again.');
+    return data.filter(name => typeof name === 'string');
+}
+
 chrome.storage.local.get('theme', (data) => {
     const savedTheme = (data.theme || 'light') + '-mode';
     document.body.classList.replace('light-mode', savedTheme);
@@ -250,10 +260,12 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
     } else {
         try {
             const response = await fetch(`${apiUrl}/friends/${username}`, { headers: { authorization: token } });
-            const list = await response.json();
-            friends.replaceChildren();
-            if (list.noauth) showNoAuthMessage();
-            else list.forEach(addFriendGUI);
+            const list = await readFriendsResponse(response);
+            if (list === null) showNoAuthMessage();
+            else {
+                friends.replaceChildren();
+                list.forEach(addFriendGUI);
+            }
         } catch (error) {
             showDialog(errorDialog);
             const message = error.stack || error.message || String(error);
@@ -262,8 +274,15 @@ chrome.runtime.sendMessage({ meta: 'getUsernamePlus', forceRefresh: true }, asyn
     }
 
     if (token) {
-        const response = await fetch(`${apiUrl}/privateMe/${username}`, { headers: { authorization: token } });
-        document.querySelector('#privme').checked = await response.json();
+        try {
+            const response = await fetch(`${apiUrl}/privateMe/${username}`, { headers: { authorization: token } });
+            if (response.ok) {
+                const privacy = await response.json();
+                if (typeof privacy === 'boolean') document.querySelector('#privme').checked = privacy;
+            }
+        } catch (error) {
+            console.warn('Could not load CoBlocks privacy settings:', error);
+        }
     }
 
     document.querySelector('#privme')?.addEventListener('change', event => {
