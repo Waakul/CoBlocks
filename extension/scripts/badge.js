@@ -5,6 +5,9 @@
     const extensionId = bootstrap.dataset.exId;
     const logoUrl = bootstrap.dataset.logoUrl;
     const seen = new WeakSet();
+    const pendingUsers = [];
+    let activeRequests = 0;
+    const settings = new Promise(resolve => window.coBlocksRuntime.sendMessage(extensionId, { meta: 'badges?' }, resolve));
     const usernameSelectors = [
         '.header-text > h2',
         'a.username[href*="/users/"]',
@@ -22,7 +25,7 @@
 
     function addBadge(usernameElement) {
         const fontSize = Number.parseFloat(getComputedStyle(usernameElement).fontSize) || 14;
-        const size = Math.max(16, Math.round(fontSize * 1.2));
+        const size = Math.min(24, Math.max(14, Math.round(fontSize * 1.2)));
 
         const badge = document.createElement('img');
         badge.className = 'blbadge';
@@ -31,35 +34,39 @@
         badge.title = 'This user uses CoBlocks';
         badge.width = size;
         badge.height = size;
+        badge.style.setProperty('--coblocks-badge-size', `${size}px`);
 
-        const container = document.createElement('span');
-        container.className = 'coblocks-user-badge';
-        usernameElement.replaceWith(container);
-        container.append(usernameElement, badge);
+        // Keep Scratch's original username/link structure and grid selectors.
+        usernameElement.append(badge);
     }
 
     async function processUsername(usernameElement) {
-        if (seen.has(usernameElement)) return;
-        seen.add(usernameElement);
-
-        const username = usernameElement.textContent.trim();
-        if (!username) return;
-
-        const account = await sendMessage({ meta: 'getUsernamePlus' });
-        if (!account) return;
-
-        if (username === account.uname) {
-            const isPrivate = await fetch(`${account.apiUrl}/privateMe/${username}`, {
-                headers: { authorization: account.currentCoBlocksToken },
-            }).then(response => response.json()).catch(() => false);
-            if (isPrivate) return;
-        }
-
-        const settings = await sendMessage({ meta: 'badges?' });
-        if (settings?.badges) return;
+        if ((await settings)?.badges) return;
+        const path = usernameElement.getAttribute('href');
+        const username = path?.match(/^\/users\/([a-zA-Z0-9_-]{3,20})\/?$/)?.[1]
+            || usernameElement.textContent.trim();
+        if (!/^[a-zA-Z0-9_-]{3,20}$/.test(username)) return;
+        if (!usernameElement.isConnected) return;
 
         const exists = await sendMessage({ meta: 'userExists', username });
-        if (exists) addBadge(usernameElement);
+        if (exists === true && usernameElement.isConnected) addBadge(usernameElement);
+    }
+
+    function queueUsername(element) {
+        if (seen.has(element)) return;
+        seen.add(element);
+        pendingUsers.push(element);
+        drainQueue();
+    }
+
+    function drainQueue() {
+        while (activeRequests < 4 && pendingUsers.length) {
+            activeRequests++;
+            processUsername(pendingUsers.shift()).catch(console.error).finally(() => {
+                activeRequests--;
+                drainQueue();
+            });
+        }
     }
 
     function scan(root) {
@@ -70,7 +77,7 @@
                 ...(root.matches(usernameSelectors) ? [root] : []),
                 ...root.querySelectorAll(usernameSelectors),
             ];
-        for (const element of matches) processUsername(element).catch(console.error);
+        for (const element of matches) queueUsername(element);
     }
 
     scan(document);

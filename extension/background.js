@@ -601,7 +601,12 @@ async function backgroundScript() {
         const cached = userExistsStore[username];
         if (cached && Date.now() - cached.time < 10 * 60_000) return cached.promise;
         if (Object.keys(userExistsStore).length > 1000) userExistsStore = {};
-        const promise = fetch(`${apiUrl}/userExists/${username}`).then(res => res.json());
+        const promise = fetch(`${apiUrl}/userExists/${username}`, { signal: AbortSignal.timeout(8000) }).then(async response => {
+            if (!response.ok) throw new Error(`Could not check CoBlocks user (${response.status}).`);
+            const exists = await response.json();
+            if (typeof exists !== 'boolean') throw new Error('Invalid CoBlocks user lookup response.');
+            return exists;
+        });
         userExistsStore[username] = { time: Date.now(), promise };
         try { return await promise; } catch (error) { delete userExistsStore[username]; throw error; }
     }

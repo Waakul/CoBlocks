@@ -1,5 +1,15 @@
 .blbadge {
-    flex: 0 0 auto;
+    display: inline-block !important;
+    width: var(--coblocks-badge-size, 16px) !important;
+    height: var(--coblocks-badge-size, 16px) !important;
+    min-width: var(--coblocks-badge-size, 16px) !important;
+    max-width: var(--coblocks-badge-size, 16px) !important;
+    min-height: var(--coblocks-badge-size, 16px) !important;
+    max-height: var(--coblocks-badge-size, 16px) !important;
+    margin: 0 0 0 3px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
     object-fit: contain;
     vertical-align: middle;
     transition: rotate 0.4s;
@@ -7,11 +17,4 @@
 
 .blbadge:hover {
     rotate: 360deg;
-}
-
-.coblocks-user-badge {
-    display: inline-flex;
-    max-width: 100%;
-    align-items: center;
-    gap: 3px;
 }
