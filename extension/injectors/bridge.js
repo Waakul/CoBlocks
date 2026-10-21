@@ -1,3 +1,29 @@
+// This preference is opt-in. Keep Scratch and other extensions' themes intact.
+const editorThemePreferences = { theme: 'light', editorFollowsTheme: false };
+const changedEditorThemeKeys = new Set();
+function applyEditorTheme() {
+    if (editorThemePreferences.editorFollowsTheme === true) {
+        document.documentElement.dataset.coblocksTheme = editorThemePreferences.theme === 'dark' ? 'dark' : 'light';
+    } else {
+        delete document.documentElement.dataset.coblocksTheme;
+    }
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || (!changes.theme && !changes.editorFollowsTheme)) return;
+    for (const key of ['theme', 'editorFollowsTheme']) {
+        if (!changes[key]) continue;
+        changedEditorThemeKeys.add(key);
+        editorThemePreferences[key] = changes[key].newValue;
+    }
+    applyEditorTheme();
+});
+chrome.storage.local.get(['theme', 'editorFollowsTheme'], preferences => {
+    for (const key of ['theme', 'editorFollowsTheme']) {
+        if (!changedEditorThemeKeys.has(key)) editorThemePreferences[key] = preferences[key];
+    }
+    applyEditorTheme();
+});
+
 /* exported injectCoBlocksPageScript */
 const pageBridgeChannel = crypto.randomUUID();
 const pageBridgePorts = new Map();

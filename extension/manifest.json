@@ -37,7 +37,10 @@
       "js": [
         "injectors/editor.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "css": [
+        "scripts/editor-theme.css"
+      ]
     },
     {
       "matches": [

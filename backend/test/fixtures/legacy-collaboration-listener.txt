@@ -1,0 +1,80 @@
+// Pre-media-fix v1.0.0 listener, retained to test the existing wire protocol.
+    collaborationListener = async (msg) => {
+        if (msg.meta === 'signedOut') {
+            addCoBlocksNotification({ type: 'error', title: 'Signed out of CoBlocks', message: 'Your session ended. Sign in through the extension popup, then refresh this editor.' });
+            coblocksDisabled = true;
+            readyToRecieveChanges = false;
+            collaboratorPointers.forEach((entry, username) => removeCollaboratorPointer(username));
+            removeCoBlocksButtons();
+            port?.disconnect();
+            return;
+        }
+        if (coblocksDisabled) { return; }
+        if (msg.meta === 'pointer') {
+            receiveCollaboratorPointer(msg.username, msg.pointer);
+            return;
+        }
+        if (typeof BL_UTILS !== 'undefined' && BL_UTILS.isDragging()) {
+            // dong add to list if its a move event on the current moving block
+            if (msg.meta === 'vm.blockListen' && msg.type === 'move' && msg.event.blockId === BL_UTILS.getDraggingId()) { return; } else { playAfterDragStop.push(msg); }
+            return;
+        }
+
+        if (!!msg.version) { lsVersion = msg.version - 1; } // TODO: possibly disable this
+        try {
+            if (msg.meta === 'resyncCached') {
+            // remember to await shit
+                await playChanges(msg.changes);
+            } else if (msg.meta === 'sprite.proxy') {
+                lsVersion++;
+                await proxyActions[msg.data.name](...(['linguini'].concat(msg.data).concat(msg.data.args)));
+            } else if (msg.meta === 'vm.blockListen') {
+                lsVersion++;
+                onBlockRecieve(msg);
+            } else if (msg.meta === 'messageList') {
+                for (let i = 0; i < msg.messages.length; i++) {
+                    await collaborationListener(msg.messages[i]);
+                }
+            } else if (msg.meta === 'vm.shareBlocks') {
+                lsVersion++;
+                doShareBlocksMessage(msg);
+            } else if (msg.meta === 'vm.replaceBlocks') {
+                if (!nameToTarget(msg.target)?.blocks) {
+                    addNewTargetEvent(msg.target, msg);
+                } else {
+                    lsVersion++;
+                    replaceBlockly(msg);
+                }
+            } else if (msg.meta === 'vm.updateBitmap') { // TODO: Do this better-- pass in changes from bg script
+                lsVersion++;
+                await updateBitmap(msg);
+            } else if (msg.meta === 'vm.updateSvg') { // TODO: Do this better-- pass in changes from bg script
+                lsVersion++;
+                await updateSvg(msg);
+            } else if (msg.meta === 'yourVersion') {
+                lsVersion = msg.version;
+            } else if (msg.meta === 'setTitle') {
+                setTitle(msg.title);
+            } else if (msg.meta === 'resync') { // TODO: Do this better-- pass in changes from bg script
+                if (readyToRecieveChanges) { getAndPlayNewChanges(); }
+            } else if (msg.meta === 'version++') {
+                lsVersion++;
+            } else if (msg.meta === 'chat') {
+                addMessage(msg.msg, true);
+            } else if (msg.meta === 'presence') {
+                if (msg.action === 'leave') removeCollaboratorPointer(msg.username);
+                const joined = msg.action === 'join';
+                addCoBlocksNotification({
+                    type: joined ? 'join' : 'leave',
+                    title: `@${msg.username} ${joined ? 'joined' : 'left'}`,
+                    message: joined ? 'They are now editing this project.' : 'They stopped editing this project.',
+                    action: 'collaboration',
+                });
+                refreshCollaborationPresence();
+            } else if (msg.meta === 'openChat') {
+                if (document.querySelector('ls-chat')) toggleChat(true);
+            } else if (msg.meta === 'backpack.updated') {
+                if (document.querySelector('#lsNativeBackpack')) refreshSharedBackpack();
+            }
+        } catch (e) { console.error(e); }
+    };

@@ -737,3 +737,8 @@ hr {
   font-family: "Cookie", cursive;
   font-size: 18px;
 }
+
+.editor-theme-setting {
+  justify-content: flex-start;
+  cursor: pointer;
+}

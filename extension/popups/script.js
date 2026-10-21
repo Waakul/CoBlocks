@@ -306,12 +306,14 @@ document.getElementById('link-donate').onclick = () => {
 const notificationsToggle = document.querySelector('#notifs');
 const pingSoundsToggle = document.querySelector('#ping-sounds');
 const badgesToggle = document.querySelector('#badges');
+const editorThemeToggle = document.querySelector('#editor-follows-theme');
 
 (async function loadPreferences() {
-    const preferences = await chrome.storage.local.get(['notifs', 'ping', 'badges']);
+    const preferences = await chrome.storage.local.get(['notifs', 'ping', 'badges', 'editorFollowsTheme']);
     notificationsToggle.checked = preferences.notifs ?? false;
     pingSoundsToggle.checked = preferences.ping ?? false;
     badgesToggle.checked = !(preferences.badges ?? false);
+    editorThemeToggle.checked = preferences.editorFollowsTheme === true;
 })();
 
 notificationsToggle.addEventListener('change', event => {
@@ -331,6 +333,10 @@ notificationsToggle.addEventListener('change', event => {
 
 pingSoundsToggle.addEventListener('change', event => {
     chrome.storage.local.set({ ping: event.currentTarget.checked });
+});
+
+editorThemeToggle.addEventListener('change', event => {
+    chrome.storage.local.set({ editorFollowsTheme: event.currentTarget.checked });
 });
 
 badgesToggle.addEventListener('change', event => {

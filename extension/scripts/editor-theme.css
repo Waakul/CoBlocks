@@ -1,0 +1,27 @@
+:root[data-coblocks-theme="light"] {
+    --coblocks-surface: #fff;
+    --coblocks-surface-alt: #f1f4f9;
+    --coblocks-hover: #e8edf6;
+    --coblocks-input: #fff;
+    --coblocks-text: #14264d;
+    --coblocks-muted: #63708a;
+    --coblocks-border: #cbd5e7;
+    --coblocks-danger: #a33939;
+    --coblocks-danger-surface: #fff7f7;
+    --coblocks-own-message: linear-gradient(120deg, #dce6f7, #b9cae8);
+    --coblocks-color-scheme: light;
+}
+
+:root[data-coblocks-theme="dark"] {
+    --coblocks-surface: #292e39;
+    --coblocks-surface-alt: #343a47;
+    --coblocks-hover: #424a59;
+    --coblocks-input: #20242d;
+    --coblocks-text: #f7f9fd;
+    --coblocks-muted: #bdc6d6;
+    --coblocks-border: #515b6d;
+    --coblocks-danger: #ffabab;
+    --coblocks-danger-surface: #492e37;
+    --coblocks-own-message: #465b80;
+    --coblocks-color-scheme: dark;
+}

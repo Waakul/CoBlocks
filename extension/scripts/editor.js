@@ -536,7 +536,7 @@ async function activateCoBlocks() {
         while (reactLoopInst && (!reactLoopInst.stateNode || !reactLoopInst.stateNode.canvas)) {
             reactLoopInst = reactLoopInst.child;
         }
-        return reactLoopInst.stateNode;
+        return reactLoopInst?.stateNode || null;
     }
 
     ///.......... ALL THE HACKY THINGS ..........//
@@ -1219,8 +1219,11 @@ async function activateCoBlocks() {
     // window.BL_UTILS.unsafeTargetsUpdate=oldTargUp;
     window.etuListeners = [];
     vm.emitTargetsUpdate = function(...args) {
-        etuListeners.forEach(e => { try { e?.(); } catch (e) { console.error(e); } });
+        const listeners = etuListeners;
         etuListeners = [];
+        for (const listener of listeners) {
+            try { if (listener() === false) etuListeners.push(listener); } catch (error) { console.error(error); }
+        }
         if (pauseEventHandling) { return; } else { oldTargUp(...args); }
 
     // move my bubble
@@ -1291,373 +1294,6 @@ async function activateCoBlocks() {
     // Blockly.getMainWorkspace().getAllBlocks().forEach(block=>{block.getSvgRoot().style.transition='transform 0.5s';})
     };
 
-    //////////////////////////////// load-costume copied (modified to remove dependencies) from https://github.com/LLK/scratch-vm/blob/develop/src/import/load-costume.js //////////////////////////////////
-
-    let BL_load_costume = {};
-    {
-        const canvasPool = (function () {
-            /**
-     * A pool of canvas objects that can be reused to reduce memory
-     * allocations. And time spent in those allocations and the later garbage
-     * collection.
-     */
-            class CanvasPool {
-                constructor () {
-                    this.pool = [];
-                    this.clearSoon = null;
-                }
-
-                /**
-         * After a short wait period clear the pool to let the VM collect
-         * garbage.
-         */
-                clear () {
-                    if (!this.clearSoon) {
-                        this.clearSoon = new Promise(resolve => setTimeout(resolve, 1000))
-                            .then(() => {
-                                this.pool.length = 0;
-                                this.clearSoon = null;
-                            });
-                    }
-                }
-
-                /**
-         * Return a canvas. Create the canvas if the pool is empty.
-         * @returns {HTMLCanvasElement} A canvas element.
-         */
-                create () {
-                    return this.pool.pop() || document.createElement('canvas');
-                }
-
-                /**
-         * Release the canvas to be reused.
-         * @param {HTMLCanvasElement} canvas A canvas element.
-         */
-                release (canvas) {
-                    this.clear();
-                    this.pool.push(canvas);
-                }
-            }
-
-            return new CanvasPool();
-        }());
-
-        /**
- * Return a promise to fetch a bitmap from storage and return it as a canvas
- * If the costume has bitmapResolution 1, it will be converted to bitmapResolution 2 here (the standard for Scratch 3)
- * If the costume has a text layer asset, which is a text part from Scratch 1.4, then this function
- * will merge the two image assets. See the issue LLK/scratch-vm#672 for more information.
- * @param {!object} costume - the Scratch costume object.
- * @param {!Runtime} runtime - Scratch runtime, used to access the v2BitmapAdapter
- * @param {?object} rotationCenter - optionally passed in coordinates for the center of rotation for the image. If
- *     none is given, the rotation center of the costume will be set to the middle of the costume later on.
- * @property {number} costume.bitmapResolution - the resolution scale for a bitmap costume.
- * @returns {?Promise} - a promise which will resolve to an object {canvas, rotationCenter, assetMatchesBase},
- *     or reject on error.
- *     assetMatchesBase is true if the asset matches the base layer; false if it required adjustment
- */
-        const fetchBitmapCanvas_ = function (costume, runtime, rotationCenter) {
-            if (!costume || !costume.asset) { // TODO: We can probably remove this check...
-                return Promise.reject('Costume load failed. Assets were missing.');
-            }
-            if (!runtime.v2BitmapAdapter) {
-                return Promise.reject('No V2 Bitmap adapter present.');
-            }
-
-            return Promise.all([costume.asset, costume.textLayerAsset].map(asset => {
-                if (!asset) {
-                    return null;
-                }
-
-                if (typeof createImageBitmap !== 'undefined') {
-                    return createImageBitmap(
-                        new Blob([asset.data], { type: asset.assetType.contentType }),
-                    );
-                }
-
-                return new Promise((resolve, reject) => {
-                    const image = new Image();
-                    image.onload = function () {
-                        resolve(image);
-                        image.onload = null;
-                        image.onerror = null;
-                    };
-                    image.onerror = function () {
-                        reject('Costume load failed. Asset could not be read.');
-                        image.onload = null;
-                        image.onerror = null;
-                    };
-                    image.src = asset.encodeDataURI();
-                });
-            }))
-                .then(([baseImageElement, textImageElement]) => {
-                    const mergeCanvas = canvasPool.create();
-
-                    const scale = costume.bitmapResolution === 1 ? 2 : 1;
-                    mergeCanvas.width = baseImageElement.width;
-                    mergeCanvas.height = baseImageElement.height;
-
-                    const ctx = mergeCanvas.getContext('2d');
-                    ctx.drawImage(baseImageElement, 0, 0);
-                    if (textImageElement) {
-                        ctx.drawImage(textImageElement, 0, 0);
-                    }
-                    // Track the canvas we merged the bitmaps onto separately from the
-                    // canvas that we receive from resize if scale is not 1. We know
-                    // resize treats mergeCanvas as read only data. We don't know when
-                    // resize may use or modify the canvas. So we'll only release the
-                    // mergeCanvas back into the canvas pool. Reusing the canvas from
-                    // resize may cause errors.
-                    let canvas = mergeCanvas;
-                    if (scale !== 1) {
-                        canvas = runtime.v2BitmapAdapter.resize(mergeCanvas, canvas.width * scale, canvas.height * scale);
-                    }
-
-                    // By scaling, we've converted it to bitmap resolution 2
-                    if (rotationCenter) {
-                        rotationCenter[0] = rotationCenter[0] * scale;
-                        rotationCenter[1] = rotationCenter[1] * scale;
-                        costume.rotationCenterX = rotationCenter[0];
-                        costume.rotationCenterY = rotationCenter[1];
-                    }
-                    costume.bitmapResolution = 2;
-
-                    // Clean up the costume object
-                    delete costume.textLayerMD5;
-                    delete costume.textLayerAsset;
-
-                    return {
-                        canvas,
-                        mergeCanvas,
-                        rotationCenter,
-                        // True if the asset matches the base layer; false if it required adjustment
-                        assetMatchesBase: scale === 1 && !textImageElement,
-                    };
-                })
-                .finally(() => {
-                    // Clean up the text layer properties if it fails to load
-                    delete costume.textLayerMD5;
-                    delete costume.textLayerAsset;
-                });
-        };
-
-        const loadBitmap_ = function (costume, runtime, _rotationCenter) {
-            return fetchBitmapCanvas_(costume, runtime, _rotationCenter)
-                .then(fetched => {
-                    const updateCostumeAsset = function (dataURI) {
-                        if (!runtime.v2BitmapAdapter) {
-                            // TODO: This might be a bad practice since the returned
-                            // promise isn't acted on. If this is something we should be
-                            // creating a rejected promise for we should also catch it
-                            // somewhere and act on that error (like logging).
-                            //
-                            // Return a rejection to stop executing updateCostumeAsset.
-                            return Promise.reject('No V2 Bitmap adapter present.');
-                        }
-
-                        const storage = runtime.storage;
-                        costume.asset = storage.createAsset(
-                            storage.AssetType.ImageBitmap,
-                            storage.DataFormat.PNG,
-                            runtime.v2BitmapAdapter.convertDataURIToBinary(dataURI),
-                            null,
-                            true, // generate md5
-                        );
-                        costume.dataFormat = storage.DataFormat.PNG;
-                        costume.assetId = costume.asset.assetId;
-                        costume.md5 = `${costume.assetId}.${costume.dataFormat}`;
-                    };
-
-                    if (!fetched.assetMatchesBase) {
-                        updateCostumeAsset(fetched.canvas.toDataURL());
-                    }
-
-                    return fetched;
-                })
-                .then(({ canvas, mergeCanvas, rotationCenter }) => {
-                    // createBitmapSkin does the right thing if costume.rotationCenter is undefined.
-                    // That will be the case if you upload a bitmap asset or create one by taking a photo.
-                    let center;
-                    if (rotationCenter) {
-                        // fetchBitmapCanvas will ensure that the costume's bitmap resolution is 2 and its rotation center is
-                        // scaled to match, so it's okay to always divide by 2.
-                        center = [
-                            rotationCenter[0] / 2,
-                            rotationCenter[1] / 2,
-                        ];
-                    }
-
-                    // TODO: costume.bitmapResolution will always be 2 at this point because of fetchBitmapCanvas_, so we don't
-                    // need to pass it in here.
-                    costume.skinId = runtime.renderer.createBitmapSkin(canvas, costume.bitmapResolution, center);
-                    canvasPool.release(mergeCanvas);
-                    const renderSize = runtime.renderer.getSkinSize(costume.skinId);
-                    costume.size = [renderSize[0] * 2, renderSize[1] * 2]; // Actual size, since all bitmaps are resolution 2
-
-                    if (!rotationCenter) {
-                        rotationCenter = runtime.renderer.getSkinRotationCenter(costume.skinId);
-                        // Actual rotation center, since all bitmaps are resolution 2
-                        costume.rotationCenterX = rotationCenter[0] * 2;
-                        costume.rotationCenterY = rotationCenter[1] * 2;
-                        costume.bitmapResolution = 2;
-                    }
-                    return costume;
-                });
-        };
-
-        // Handle all manner of costume errors with a Gray Question Mark (default costume)
-        // and preserve as much of the original costume data as possible
-        // Returns a promise of a costume
-        const handleCostumeLoadError = function (costume, runtime) {
-            // Keep track of the old asset information until we're done loading the default costume
-            const oldAsset = costume.asset; // could be null
-            const oldAssetId = costume.assetId;
-            const oldRotationX = costume.rotationCenterX;
-            const oldRotationY = costume.rotationCenterY;
-            const oldBitmapResolution = costume.bitmapResolution;
-            const oldDataFormat = costume.dataFormat;
-
-            const AssetType = runtime.storage.AssetType;
-            const isVector = costume.dataFormat === AssetType.ImageVector.runtimeFormat;
-
-            // Use default asset if original fails to load
-            costume.assetId = isVector ?
-                runtime.storage.defaultAssetId.ImageVector :
-                runtime.storage.defaultAssetId.ImageBitmap;
-            costume.asset = runtime.storage.get(costume.assetId);
-            costume.md5 = `${costume.assetId}.${costume.asset.dataFormat}`;
-
-            const defaultCostumePromise = (isVector) ?
-                loadVector_(costume, runtime) : loadBitmap_(costume, runtime);
-
-            return defaultCostumePromise.then(loadedCostume => {
-                loadedCostume.broken = {};
-                loadedCostume.broken.assetId = oldAssetId;
-                loadedCostume.broken.md5 = `${oldAssetId}.${oldDataFormat}`;
-
-                // Should be null if we got here because the costume was missing
-                loadedCostume.broken.asset = oldAsset;
-                loadedCostume.broken.dataFormat = oldDataFormat;
-
-                loadedCostume.broken.rotationCenterX = oldRotationX;
-                loadedCostume.broken.rotationCenterY = oldRotationY;
-                loadedCostume.broken.bitmapResolution = oldBitmapResolution;
-                return loadedCostume;
-            });
-        };
-
-        /**
- * Initialize a costume from an asset asynchronously.
- * Do not call this unless there is a renderer attached.
- * @param {!object} costume - the Scratch costume object.
- * @property {int} skinId - the ID of the costume's render skin, once installed.
- * @property {number} rotationCenterX - the X component of the costume's origin.
- * @property {number} rotationCenterY - the Y component of the costume's origin.
- * @property {number} [bitmapResolution] - the resolution scale for a bitmap costume.
- * @property {!Asset} costume.asset - the asset of the costume loaded from storage.
- * @param {!Runtime} runtime - Scratch runtime, used to access the storage module.
- * @param {?int} optVersion - Version of Scratch that the costume comes from. If this is set
- *     to 2, scratch 3 will perform an upgrade step to handle quirks in SVGs from Scratch 2.0.
- * @returns {?Promise} - a promise which will resolve after skinId is set, or null on error.
- */
-        const loadCostumeFromAsset = function (costume, runtime, optVersion) {
-            costume.assetId = costume.asset.assetId;
-            const renderer = runtime.renderer;
-            if (!renderer) {
-                log.warn('No rendering module present; cannot load costume: ', costume.name);
-                return Promise.resolve(costume);
-            }
-            const AssetType = runtime.storage.AssetType;
-            let rotationCenter;
-            // Use provided rotation center and resolution if they are defined. Bitmap resolution
-            // should only ever be 1 or 2.
-            if (typeof costume.rotationCenterX === 'number' && !isNaN(costume.rotationCenterX) &&
-            typeof costume.rotationCenterY === 'number' && !isNaN(costume.rotationCenterY)) {
-                rotationCenter = [costume.rotationCenterX, costume.rotationCenterY];
-            }
-            return loadBitmap_(costume, runtime, rotationCenter, optVersion)
-                .catch(error => {
-                    log.warn(`Error loading bitmap image: ${error}`);
-                    return handleCostumeLoadError(costume, runtime);
-                });
-        };
-
-
-        /**
- * Load a costume's asset into memory asynchronously.
- * Do not call this unless there is a renderer attached.
- * @param {!string} md5ext - the MD5 and extension of the costume to be loaded.
- * @param {!object} costume - the Scratch costume object.
- * @property {int} skinId - the ID of the costume's render skin, once installed.
- * @property {number} rotationCenterX - the X component of the costume's origin.
- * @property {number} rotationCenterY - the Y component of the costume's origin.
- * @property {number} [bitmapResolution] - the resolution scale for a bitmap costume.
- * @param {!Runtime} runtime - Scratch runtime, used to access the storage module.
- * @param {?int} optVersion - Version of Scratch that the costume comes from. If this is set
- *     to 2, scratch 3 will perform an upgrade step to handle quirks in SVGs from Scratch 2.0.
- * @returns {?Promise} - a promise which will resolve after skinId is set, or null on error.
- */
-        const loadCostume = function (md5ext, costume, runtime, optVersion) {
-            const idParts = md5ext.split('.');
-            const md5 = idParts[0];
-            const ext = idParts[1].toLowerCase();
-            costume.dataFormat = ext;
-
-            if (costume.asset) {
-                // Costume comes with asset. It could be coming from image upload, drag and drop, or file
-                return loadCostumeFromAsset(costume, runtime, optVersion);
-            }
-
-            // Need to load the costume from storage. The server should have a reference to this md5.
-            if (!runtime.storage) {
-                log.warn('No storage module present; cannot load costume asset: ', md5ext);
-                return Promise.resolve(costume);
-            }
-
-            if (!runtime.storage.defaultAssetId) {
-                log.warn('No default assets found');
-                return Promise.resolve(costume);
-            }
-
-            const AssetType = runtime.storage.AssetType;
-            const assetType = (ext === 'svg') ? AssetType.ImageVector : AssetType.ImageBitmap;
-
-            const costumePromise = runtime.storage.load(assetType, md5, ext);
-
-            let textLayerPromise;
-            if (costume.textLayerMD5) {
-                textLayerPromise = runtime.storage.load(AssetType.ImageBitmap, costume.textLayerMD5, 'png');
-            } else {
-                textLayerPromise = Promise.resolve(null);
-            }
-
-            return Promise.all([costumePromise, textLayerPromise])
-                .then(assetArray => {
-                    if (assetArray[0]) {
-                        costume.asset = assetArray[0];
-                    } else {
-                        return handleCostumeLoadError(costume, runtime);
-                    }
-
-                    if (assetArray[1]) {
-                        costume.textLayerAsset = assetArray[1];
-                    }
-                    return loadCostumeFromAsset(costume, runtime, optVersion);
-                })
-                .catch(error => {
-                    // Handle case where storage.load rejects with errors
-                    // instead of resolving null
-                    log.warn('Error loading costume: ', error);
-                    return handleCostumeLoadError(costume, runtime);
-                });
-        };
-        BL_load_costume = {
-            loadCostume,
-            loadCostumeFromAsset,
-        };
-    };
-    //////////////////////////////////////////// end load-costume //////////////////////////////////////////////
-
     // vm.editingTarget = a;
     // vm.emitTargetsUpdate(false /* Don't emit project change */);
     // vm.emitWorkspaceUpdate();
@@ -1676,19 +1312,47 @@ async function activateCoBlocks() {
     //sounds
 
 
-    vm.updateSoundBuffer = asyncEditingProxy(vm.updateSoundBuffer, 'updatesound', null, null, (args) => {
-        const extrargs = {};
-        return extrargs;
-    }, async (data) => {
-        const retArgs = data.args;
-        retArgs[2] = Uint8Array.from(Object.values(retArgs[2]));
-        // WOW im proud of this one! Create an AudioBuffer from Uint8Array
-        retArgs[1] = await (new AudioContext({ sampleRate: retArgs[1].sampleRate })).decodeAudioData(retArgs[2].buffer.slice(0));
-        // Wait no that requires async programming which i dont have here ugggggg
-        // Keep the variable reporter aligned with the current monitor value.
-        return retArgs;
-    });
-
+    const oldUpdateSoundBuffer = vm.updateSoundBuffer;
+    vm.updateSoundBuffer = function(soundIndex, buffer, encoding) {
+        const target = vm.editingTarget;
+        const result = oldUpdateSoundBuffer.call(vm, soundIndex, buffer, encoding);
+        if (!pauseEventHandling && encoding) {
+            const bytes = encoding instanceof ArrayBuffer ? new Uint8Array(encoding)
+                : new Uint8Array(encoding.buffer, encoding.byteOffset, encoding.byteLength);
+            liveMessage({ meta: 'sprite.proxy', data: {
+                name: 'updatesound',
+                args: [soundIndex, { sampleRate: buffer.sampleRate }, Array.from(bytes)],
+                extrargs: { target: targetToName(target) },
+            } });
+        }
+        return result;
+    };
+    async function applySoundUpdate(data) {
+        const target = nameToTarget(data.extrargs.target);
+        const sound = target?.sprite.sounds[data.args[0]];
+        if (!sound) return;
+        const bytes = Uint8Array.from(Object.values(data.args[2] || {}));
+        if (!bytes.length) throw new Error('The shared sound has no encoded audio.');
+        const context = vm.runtime.audioEngine.audioContext;
+        const buffer = await context.decodeAudioData(bytes.buffer.slice(0));
+        if (!target.sprite.sounds.includes(sound)) return;
+        const previous = vm.editingTarget;
+        const previousRuntime = vm.runtime._editingTarget;
+        try {
+            vm.editingTarget = target;
+            vm.runtime._editingTarget = target;
+            oldUpdateSoundBuffer.call(vm, target.sprite.sounds.indexOf(sound), buffer, bytes);
+        } finally {
+            vm.editingTarget = previous;
+            vm.runtime._editingTarget = previousRuntime;
+        }
+    }
+    let soundUpdates = Promise.resolve();
+    proxyActions.updatesound = (_marker, data) => {
+        const update = soundUpdates.then(() => applySoundUpdate(data));
+        soundUpdates = update.catch(error => console.error('CoBlocks sound sync failed:', error));
+        return update;
+    };
 
     vm.addSound = proxy(vm.addSound, 'addsound',
         (args) => {
@@ -1786,198 +1450,112 @@ async function activateCoBlocks() {
             return ret;
         },
     );
-    // vm.updateBitmap = editingProxy(vm.updateBitmap,"updatebitmap",null,(_a,_b,data)=>{
-    //     let costumeIndex = getSelectedCostumeIndex()
-    //     // update paint editor if reciever is editing the costume
-    //     if(targetToName(vm.editingTarget) === data.extrargs.target && costumeIndex !== -1 && costumeIndex === data.args[0]) {
-    //         // todo use some other method of refreshing the canvas
-    //         document.getElementById('react-tabs-4').click()
-    //         document.getElementById('react-tabs-2').click()
-    //     }
-    // },
-    //     (args)=>({height:args[1].height,width:args[1].width}),
-    //     (data)=>{
-    //         let args = data.args;
-    //         args[1] = new ImageData(Uint8ClampedArray.from(Object.values(args[1].data)), data.extrargs.width, data.extrargs.height);
-    //         return args
-    //     })
-    // vm.updateSvg = editingProxy(vm.updateSvg,"updatesvg",null,(_a,_b,data)=>{
-    //     let costumeIndex = getSelectedCostumeIndex()
-    //     // update paint editor if reciever is editing the costume
-    //     // todo: instead of checking with vm.editingTarget, use _a or _b
-    //     if(targetToName(_a) === data.extrargs.target && costumeIndex !== -1 && costumeIndex === data.args[0]) {
-    //         let costume = vm.editingTarget.getCostumes()[costumeIndex]
-    //         let paper = getPaper()
-    //         if(!paper) {return;}
-    //         paper.switchCostume(
-    //             costume.dataFormat,
-    //             costume.asset.decodeText(),
-    //             costume.rotationCenterX,
-    //             costume.rotationCenterY,
-    //             paper.props.zoomLevelId,
-    //             paper.props.zoomLevelId)
-    //     }
-    // })
-    const oldUpdateBitmap = vm.updateBitmap;
-    vm.updateBitmap = (...args) => {
-    // args: costumeIndex, bitmap, rotationCenterX, rotationCenterY, bitmapResolution
-        oldUpdateBitmap.bind(vm)(...args);
-        // vm runs emitTargetsUpdate after creating new asset
-        etuListeners.push(async() => {
-            const target = BL_UTILS.targetToName(vm.editingTarget);
-
-            const costumeIndex = args[0];
-            const bitmapResolution = args[4];
-            const costume = vm.editingTarget.getCostumes()[costumeIndex];
-            const sendCostume = JSON.parse(JSON.stringify(costume));
-            delete sendCostume.asset;
-            const asset = costume.asset;
-
-            const bitmap = args[1];
-            const w = bitmap.sourceWidth === 0 ? 0 : bitmap.width;
-            const h = bitmap.sourceHeight === 0 ? 0 : bitmap.height;
-
-            // send costume to scratch servers
-            const stored = await vm.runtime.storage.store(asset.assetType, asset.dataFormat, asset.data, asset.assetId);
-            // get costume info to send
-
-            liveMessage({ meta: 'vm.updateBitmap', costume: sendCostume, target, costumeIndex, assetType: asset.assetType, h, w, bitmapResolution });
-        });
-    };
-    async function updateBitmap(msg) {
-        const target = BL_UTILS.nameToTarget(msg.target);
-        const costume = target.getCostumes()[msg.costumeIndex];
-        asset = await vm.runtime.storage.load(msg.assetType, msg.costume.assetId, msg.costume.dataFormat);
-
-        costume.asset = asset;
-        Object.entries(msg.costume).forEach(entry => {
-            costume[entry[0]] = entry[1];
-        },
-        );
-
-        vm.emitTargetsUpdate();
-
-        // update paper
-        const selectedCostumeIndex = getSelectedCostumeIndex();
-        if (BL_UTILS.targetToName(vm.editingTarget) === msg.target && selectedCostumeIndex !== -1 && msg.costumeIndex === selectedCostumeIndex) {
-            const costume = vm.editingTarget.getCostumes()[msg.costumeIndex];
-            const paper = getPaper();
-            if (!paper) { return; }
-            paper.switchCostume(
-                costume.dataFormat,
-                costume.asset.encodeDataURI(),
-                costume.rotationCenterX,
-                costume.rotationCenterY,
-                paper.props.zoomLevelId,
-                paper.props.zoomLevelId);
+    function sendCostumeUpdate(meta, target, costume) {
+        if (!costume?.asset) return;
+        const costumeIndex = target.getCostumes().indexOf(costume);
+        if (costumeIndex < 0) return;
+        const metadata = {};
+        for (const key of ['name', 'assetId', 'dataFormat', 'md5', 'bitmapResolution', 'rotationCenterX', 'rotationCenterY', 'size']) {
+            if (costume[key] !== undefined) metadata[key] = costume[key];
         }
-
-        // update renderer costume skins [VERY IMPORTANT FOR RENDER!]
-        await BL_load_costume.loadCostume(costume.md5, costume, vm.runtime);
-        target.updateAllDrawableProperties();
-
-        // image = new ImageData(new Uint8ClampedArray(asset.data.buffer),msg.w,msg.h)
-
-        /// TODO GET BITMAP SHOWING UP IN RENDER
-        // const tmpCanvas = document.createElement('canvas');
-        // tmpCanvas.width = msg.w;
-        // tmpCanvas.height = msg.h;
-        // const tmpCtx = tmpCanvas.getContext('2d');
-        // const imageData = tmpCtx.createImageData(msg.w, msg.h);
-        // imageData.data.set(asset.data);
-        // tmpCtx.putImageData(imageData, 0, 0);
-
-    // vm.runtime.renderer.updateBitmapSkin(
-    //     costume.skinId,
-    //     tmpCanvas,
-    //     msg.bitmapResolution,
-    //     [costume.rotationCenterX / msg.bitmapResolution, costume.rotationCenterY / msg.bitmapResolution]
-    // );
+        liveMessage({ meta, target: targetToName(target), costumeIndex,
+            costume: metadata, assetType: costume.asset.assetType,
+            assetData: Array.from(costume.asset.data) });
     }
 
-
-
-
-
-
-
-
+    const pendingBitmaps = new Map();
+    const oldUpdateBitmap = vm.updateBitmap;
+    vm.updateBitmap = function(...args) {
+        const target = vm.editingTarget;
+        const costume = target?.getCostumes()[args[0]];
+        if (!pauseEventHandling && costume) {
+            let pending = pendingBitmaps.get(costume);
+            if (!pending) {
+                pending = { count: 0, asset: costume.asset };
+                pendingBitmaps.set(costume, pending);
+                const completed = () => {
+                    if (costume.asset !== pending.asset) {
+                        pending.asset = costume.asset;
+                        pending.count--;
+                        sendCostumeUpdate('vm.updateBitmap', target, costume);
+                    }
+                    if (pending.count > 0 && target.getCostumes().includes(costume)) return false;
+                    pendingBitmaps.delete(costume);
+                };
+                etuListeners.push(completed);
+            }
+            pending.count++;
+        }
+        return oldUpdateBitmap.apply(vm, args);
+    };
 
     const oldUpdateSvg = vm.updateSvg;
-    vm.updateSvg = (...args) => {
-
-        // args: costumeIndex, bitmap, rotationCenterX, rotationCenterY, bitmapResolution
-        oldUpdateSvg.bind(vm)(...args);
-
-        // vm runs emitTargetsUpdate after creating new asset
-        { (async() => {
-            const target = BL_UTILS.targetToName(vm.editingTarget);
-
-            const costumeIndex = args[0];
-            const costume = vm.editingTarget.getCostumes()[costumeIndex];
-            const sendCostume = JSON.parse(JSON.stringify(costume));
-            delete sendCostume.asset;
-            const asset = costume.asset;
-
-            // send costume to scratch servers
-            const stored = await vm.runtime.storage.store(asset.assetType, asset.dataFormat, asset.data, asset.assetId);
-            // get costume info to send
-
-            liveMessage({ meta: 'vm.updateSvg', costume: sendCostume, target, costumeIndex, assetType: asset.assetType });
-        })(); }
-
+    vm.updateSvg = function(...args) {
+        const target = vm.editingTarget;
+        const costume = target?.getCostumes()[args[0]];
+        const result = oldUpdateSvg.apply(vm, args);
+        if (!pauseEventHandling) sendCostumeUpdate('vm.updateSvg', target, costume);
+        return result;
     };
-    async function updateSvg(msg) {
+
+    async function applyCostumeUpdate(msg) {
         const target = BL_UTILS.nameToTarget(msg.target);
-        const costume = target.getCostumes()[msg.costumeIndex];
-        asset = await vm.runtime.storage.load(msg.assetType, msg.costume.assetId, msg.costume.dataFormat);
+        const costume = target?.getCostumes()[msg.costumeIndex];
+        if (!costume) return;
+        const storage = vm.runtime.storage;
+        const format = msg.costume.dataFormat;
+        const type = format === 'svg' ? storage.AssetType.ImageVector : storage.AssetType.ImageBitmap;
+        const asset = Array.isArray(msg.assetData)
+            ? storage.createAsset(type, format, Uint8Array.from(msg.assetData), null, true)
+            : await storage.load(type, msg.costume.assetId, format);
+        if (!asset) throw new Error('The shared costume asset could not be loaded.');
 
-        costume.asset = asset;
-        Object.entries(msg.costume).forEach(entry => {
-            if (entry[0] === 'skinId') { return; }
-            costume[entry[0]] = entry[1];
-        });
-
+        const renderer = vm.runtime.renderer;
+        let skinId;
+        let bitmap;
+        const center = [msg.costume.rotationCenterX, msg.costume.rotationCenterY];
+        try {
+            if (format === 'svg') {
+                skinId = renderer.createSVGSkin(new TextDecoder().decode(asset.data), center);
+            } else {
+                bitmap = await createImageBitmap(new Blob([asset.data], { type: type.contentType }));
+                const resolution = msg.costume.bitmapResolution || 2;
+                skinId = renderer.createBitmapSkin(bitmap, resolution, center.map(value => value / resolution));
+            }
+        } finally {
+            bitmap?.close();
+        }
+        if (!target.getCostumes().includes(costume)) {
+            renderer.destroySkin(skinId);
+            return;
+        }
+        const oldSkin = costume.skinId;
+        for (const key of ['name', 'bitmapResolution', 'rotationCenterX', 'rotationCenterY', 'size']) {
+            if (msg.costume[key] !== undefined) costume[key] = msg.costume[key];
+        }
+        Object.assign(costume, { asset, assetId: asset.assetId, dataFormat: format,
+            md5: `${asset.assetId}.${format}`, skinId });
+        delete costume.broken;
+        for (const clone of target.sprite.clones || [target]) clone.updateAllDrawableProperties();
+        if (oldSkin !== undefined && oldSkin !== skinId) renderer.destroySkin(oldSkin);
+        const pending = pendingBitmaps.get(costume);
+        if (pending) pending.asset = asset;
         vm.emitTargetsUpdate();
 
-        // update skin
-        if (vm?.runtime?.renderer) {
-        // costume data to xml svg dom text
-            const svg = new TextDecoder().decode(costume.asset.data);
-            vm.runtime.renderer.updateSVGSkin(costume.skinId, svg, [costume.rotationCenterX, costume.rotationCenterY]);
-        }
-
-        // update paper
-        const selectedCostumeIndex = getSelectedCostumeIndex();
-        if (BL_UTILS.targetToName(vm.editingTarget) === msg.target && selectedCostumeIndex !== -1 && msg.costumeIndex === selectedCostumeIndex) {
-            const costume = vm.editingTarget.getCostumes()[msg.costumeIndex];
+        if (vm.editingTarget === target && getSelectedCostumeIndex() === target.getCostumes().indexOf(costume)) {
             const paper = getPaper();
-            if (!paper) { return; }
-            paper.switchCostume(
-                costume.dataFormat,
-                costume.asset.encodeDataURI(),
-                costume.rotationCenterX,
-                costume.rotationCenterY,
-                paper.props.zoomLevelId,
-                paper.props.zoomLevelId);
+            if (typeof paper?.switchCostume === 'function') paper.switchCostume(format, format === 'svg' ? new TextDecoder().decode(asset.data) : asset.encodeDataURI(), costume.rotationCenterX,
+                costume.rotationCenterY, paper.props.zoomLevelId, paper.props.zoomLevelId);
         }
-
-        // update renderer costume skins [VERY IMPORTANT FOR RENDER!]
-        // await BL_load_costume.loadCostume(costume.md5,costume,vm.runtime)
-        target.updateAllDrawableProperties();
     }
+    let costumeUpdates = Promise.resolve();
+    function updateBitmap(msg) {
+        const update = costumeUpdates.then(() => applyCostumeUpdate(msg));
+        costumeUpdates = update.catch(error => console.error('CoBlocks costume sync failed:', error));
+        return update;
+    }
+    const updateSvg = updateBitmap;
 
-
-
-
-
-
-
-
-
-
-    // vm.updateBitmap = proxy(vm.updateBitmap,"updatebit",null,null,null,()=>{vm.emitTargetsUpdate();vm.emitWorkspaceUpdate()})
-    // vm.updateSvg = proxy(vm.updateSvg,"updatesvg",null,null,null,()=>{vm.emitTargetsUpdate();vm.emitWorkspaceUpdate()})
     newTargetEvents = {}; // targetName => [events...] //todo make let statement
     function addNewTargetEvent(targetName, event) {
         if (!(targetName in newTargetEvents)) {
@@ -2292,7 +1870,8 @@ const shareCSS = `
 .ls-collab-panel {
     width: min(320px, calc(100vw - 24px)); min-width: 0; max-width: 320px; max-height: calc(100vh - 72px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
     overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-    color: #14264d; background: #fff; border: 1px solid rgba(20, 38, 77, .14);
+    color-scheme: var(--coblocks-color-scheme, normal);
+    color: var(--coblocks-text, #14264d); background: var(--coblocks-surface, #fff); border: 1px solid var(--coblocks-border, rgba(20, 38, 77, .14));
     border-radius: 16px; box-shadow: 0 18px 46px rgba(22, 43, 35, .24);
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
@@ -2302,115 +1881,115 @@ const shareCSS = `
 .ls-collab-brand img { width: 32px; height: 32px; object-fit: contain; }
 .ls-collab-heading { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .ls-collab-heading strong { font-size: 17px; line-height: 20px; }
-.ls-collab-heading span, .ls-section-heading span, .ls-add-label span { color: #66736d; font-size: 12px; line-height: 16px; }
+.ls-collab-heading span, .ls-section-heading span, .ls-add-label span { color: var(--coblocks-muted, #66736d); font-size: 12px; line-height: 16px; }
 .ls-icon-button, .ls-text-button, .ls-remove-collaborator, .ls-secondary-button, .ls-danger-button, .ls-member-name, .ls-search-result { font: inherit; }
-.ls-icon-button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #f2f5fa; color: #32415f; font-size: 22px; cursor: pointer; }
-.ls-icon-button:hover { background: #e8edf6; }
+.ls-icon-button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: var(--coblocks-surface-alt, #f2f5fa); color: var(--coblocks-text, #32415f); font-size: 22px; cursor: pointer; }
+.ls-icon-button:hover { background: var(--coblocks-hover, #e8edf6); }
 .ls-collab-stats { display: flex; gap: 8px; }
-.ls-collab-stats > span { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; background: #f3f6fb; color: #354665; font-size: 12px; }
+.ls-collab-stats > span { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; background: var(--coblocks-surface-alt, #f3f6fb); color: var(--coblocks-text, #354665); font-size: 12px; }
 .ls-online-dot, .ls-member-presence { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #20b86a; box-shadow: 0 0 0 2px #fff; }
 .ls-section-heading { display: flex; align-items: end; justify-content: space-between; }
 .ls-section-heading > div, .ls-add-label { display: flex; flex-direction: column; }
 .ls-section-heading strong, .ls-add-label strong { font-size: 14px; }
-.ls-text-button { border: 0; padding: 4px; background: transparent; color: #14264d; font-weight: 700; cursor: pointer; }
+.ls-text-button { border: 0; padding: 4px; background: transparent; color: var(--coblocks-text, #14264d); font-weight: 700; cursor: pointer; }
 .ls-text-button:hover { text-decoration: underline; }
 .ls-shared-list { max-height: 188px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; margin: 0 -4px; padding: 0 4px; }
 .ls-collab-member { min-height: 48px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto 28px; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 10px; }
 .ls-collab-member[hidden], .ls-empty-state[hidden], .ls-mini-spinner[hidden] { display: none; }
-.ls-collab-member:hover { background: #f4f8f6; }
+.ls-collab-member:hover { background: var(--coblocks-surface-alt, #f4f8f6); }
 .ls-member-avatar, .ls-result-avatar { position: relative; width: 38px; height: 38px; border-radius: 50%; background-position: center; background-size: cover; background-color: #dfe9e5; }
 .ls-member-presence { display: none; position: absolute; right: 0; bottom: 0; }
 .ls-collab-member.is-online .ls-member-presence { display: block; }
-.ls-member-name { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: #23342d; font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.ls-member-name:hover { color: #14264d; text-decoration: underline; }
-.ls-member-role { padding: 3px 7px; border-radius: 999px; background: #edf3f0; color: #68756f; font-size: 10px; font-weight: 700; }
+.ls-member-name { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--coblocks-text, #23342d); font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ls-member-name:hover { color: var(--coblocks-text, #14264d); text-decoration: underline; }
+.ls-member-role { padding: 3px 7px; border-radius: 999px; background: var(--coblocks-surface-alt, #edf3f0); color: var(--coblocks-muted, #68756f); font-size: 10px; font-weight: 700; }
 .ls-collab-member.is-owner .ls-member-role { background: #fff1c7; color: #795c0a; }
-.ls-remove-collaborator { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: #9b5555; font-size: 20px; cursor: pointer; }
-.ls-remove-collaborator:hover { background: #ffebeb; color: #ba3030; }
-.ls-empty-state { padding: 14px; border: 1px dashed #cbd8d2; border-radius: 10px; color: #74827c; font-size: 12px; text-align: center; }
+.ls-remove-collaborator { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--coblocks-danger, #9b5555); font-size: 20px; cursor: pointer; }
+.ls-remove-collaborator:hover { background: var(--coblocks-danger-surface, #ffebeb); color: var(--coblocks-danger, #ba3030); }
+.ls-empty-state { padding: 14px; border: 1px dashed var(--coblocks-border, #cbd8d2); border-radius: 10px; color: var(--coblocks-muted, #74827c); font-size: 12px; text-align: center; }
 .ls-divider { height: 1px; background: #e5ece9; }
 .ls-search-wrap { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
-#searchy { display: block !important; box-sizing: border-box !important; inline-size: 100% !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-inline-size: 100% !important; height: 40px !important; margin: 0 !important; padding: 0 40px 0 12px !important; border: 1px solid #c7d3ce !important; border-radius: 10px !important; outline: 0; color: #1f2d27; background: #fff; font: inherit; }
+#searchy { display: block !important; box-sizing: border-box !important; inline-size: 100% !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; max-inline-size: 100% !important; height: 40px !important; margin: 0 !important; padding: 0 40px 0 12px !important; border: 1px solid var(--coblocks-border, #c7d3ce) !important; border-radius: 10px !important; outline: 0; color: var(--coblocks-text, #1f2d27); background: var(--coblocks-surface, #fff); font: inherit; }
 #searchy:focus { border-color: #e7a91b; box-shadow: 0 0 0 3px rgba(255,200,61,.16); }
-.ls-mini-spinner { position: absolute; right: 13px; top: 12px; width: 16px; height: 16px; border: 2px solid #cbe2d8; border-top-color: #14264d; border-radius: 50%; animation: spin .7s linear infinite; }
-.ls-search-result { width: 100%; display: grid; grid-template-columns: 38px 1fr 28px; align-items: center; gap: 10px; padding: 7px; border: 1px solid #dce7e2; border-radius: 11px; color: #203129; background: #f7fbf9; cursor: pointer; text-align: left; }
-.ls-search-result:hover { border-color: #8fcab2; background: #edf8f3; }
+.ls-mini-spinner { position: absolute; right: 13px; top: 12px; width: 16px; height: 16px; border: 2px solid var(--coblocks-border, #cbe2d8); border-top-color: #14264d; border-radius: 50%; animation: spin .7s linear infinite; }
+.ls-search-result { width: 100%; display: grid; grid-template-columns: 38px 1fr 28px; align-items: center; gap: 10px; padding: 7px; border: 1px solid var(--coblocks-border, #dce7e2); border-radius: 11px; color: var(--coblocks-text, #203129); background: var(--coblocks-surface-alt, #f7fbf9); cursor: pointer; text-align: left; }
+.ls-search-result:hover { border-color: var(--coblocks-border, #8fcab2); background: var(--coblocks-hover, #edf8f3); }
 .ls-search-result[hidden] { display: none; }
 .ls-result-copy { min-width: 0; display: flex; flex-direction: column; }
 .ls-result-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ls-result-copy small { color: #687970; }
+.ls-result-copy small { color: var(--coblocks-muted, #687970); }
 .ls-result-add { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: #fff; background: #e7a91b; font-size: 20px; }
-.ls-share-status { min-height: 16px; color: #587067; font-size: 12px; line-height: 16px; overflow-wrap: anywhere; white-space: normal; }
-.ls-share-status.is-error { color: #b43b3b; }
-.ls-share-status.is-success { color: #14264d; }
-.ls-native-backpack { box-sizing: border-box; flex: 0 0 auto; width: 100%; height: 46px; overflow: hidden; border-top: 1px solid #d9e3f2; background: #fff; color: #334; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; transition: height .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.ls-share-status { min-height: 16px; color: var(--coblocks-muted, #587067); font-size: 12px; line-height: 16px; overflow-wrap: anywhere; white-space: normal; }
+.ls-share-status.is-error { color: var(--coblocks-danger, #b43b3b); }
+.ls-share-status.is-success { color: var(--coblocks-text, #14264d); }
+.ls-native-backpack { color-scheme: var(--coblocks-color-scheme, normal); box-sizing: border-box; flex: 0 0 auto; width: 100%; height: 46px; overflow: hidden; border-top: 1px solid var(--coblocks-border, #d9e3f2); background: var(--coblocks-surface, #fff); color: var(--coblocks-text, #334); font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; transition: height .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .ls-native-backpack.is-expanded { height: 210px; box-shadow: 0 -5px 15px rgba(35,55,85,.09); }
 .ls-native-backpack.is-drop-target { border-color: #ffc83d; background: #fff9e9; box-shadow: inset 0 0 0 3px rgba(255,200,61,.28); }
-.ls-native-backpack-header { box-sizing: border-box; width: 100%; height: 45px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border: 0; color: #4c4c4c; background: #fff; font: inherit; font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
-.ls-native-backpack-header:hover { background: #f7f9fc; }
-.ls-native-backpack-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: #fff; font-size: 14px; }
+.ls-native-backpack-header { box-sizing: border-box; width: 100%; height: 45px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border: 0; color: var(--coblocks-text, #4c4c4c); background: var(--coblocks-surface, #fff); font: inherit; font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; }
+.ls-native-backpack-header:hover { background: var(--coblocks-surface-alt, #f7f9fc); }
+.ls-native-backpack-icon { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: var(--coblocks-surface, #fff); font-size: 14px; }
 .ls-native-backpack-title { flex: 1; }
-.ls-native-backpack-count { color: #777; font-size: 11px; font-weight: 500; }
-.ls-native-backpack-chevron { color: #777; font-size: 18px; transform: rotate(-90deg); transition: transform .18s ease; }
+.ls-native-backpack-count { color: var(--coblocks-muted, #777); font-size: 11px; font-weight: 500; }
+.ls-native-backpack-chevron { color: var(--coblocks-muted, #777); font-size: 18px; transform: rotate(-90deg); transition: transform .18s ease; }
 .ls-native-backpack.is-expanded .ls-native-backpack-chevron { transform: rotate(90deg); }
-.ls-native-backpack-body { box-sizing: border-box; height: 164px; display: flex; flex-direction: column; padding: 8px 12px 10px; border-top: 1px solid #edf0f5; }
+.ls-native-backpack-body { box-sizing: border-box; height: 164px; display: flex; flex-direction: column; padding: 8px 12px 10px; border-top: 1px solid var(--coblocks-border, #edf0f5); }
 .ls-native-backpack-list { min-width: 0; flex: 1; display: flex; align-items: stretch; gap: 9px; overflow-x: auto; overflow-y: hidden; padding: 1px 1px 5px; }
-.ls-native-backpack-empty { width: 100%; display: grid; place-items: center; border: 2px dashed #cdd8e8; border-radius: 8px; color: #718096; font-size: 12px; text-align: center; }
-.ls-native-backpack-item { position: relative; box-sizing: border-box; flex: 0 0 152px; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 10px; border: 1px solid #dce3ed; border-radius: 8px; background: #fff; cursor: grab; box-shadow: 0 1px 3px rgba(40,55,80,.08); }
+.ls-native-backpack-empty { width: 100%; display: grid; place-items: center; border: 2px dashed var(--coblocks-border, #cdd8e8); border-radius: 8px; color: var(--coblocks-muted, #718096); font-size: 12px; text-align: center; }
+.ls-native-backpack-item { position: relative; box-sizing: border-box; flex: 0 0 152px; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 10px; border: 1px solid var(--coblocks-border, #dce3ed); border-radius: 8px; background: var(--coblocks-surface, #fff); cursor: grab; box-shadow: 0 1px 3px rgba(40,55,80,.08); }
 .ls-native-backpack-item:hover { border-color: #75bfe9; box-shadow: 0 2px 7px rgba(40,95,130,.15); }
 .ls-native-backpack-item:active { cursor: grabbing; }
 .ls-native-backpack-preview { width: 100%; height: 62px; object-fit: contain; object-position: left center; pointer-events: none; }
-.ls-native-backpack-item-title { overflow: hidden; color: #4c4c4c; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.ls-native-backpack-item-meta { overflow: hidden; color: #7b8491; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.ls-native-backpack-item-title { overflow: hidden; color: var(--coblocks-text, #4c4c4c); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.ls-native-backpack-item-meta { overflow: hidden; color: var(--coblocks-muted, #7b8491); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ls-native-backpack-item-actions { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
-.ls-native-backpack-use, .ls-native-backpack-delete, .ls-native-backpack-refresh { border: 0; background: transparent; color: #14264d; font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
-.ls-native-backpack-delete { color: #b54a4a; }
-.ls-native-backpack-status { min-height: 15px; color: #647487; font-size: 11px; }
-.ls-native-backpack-status.is-error { color: #b43b3b; }
-.ls-native-backpack-status.is-success { color: #14264d; }
+.ls-native-backpack-use, .ls-native-backpack-delete, .ls-native-backpack-refresh { border: 0; background: transparent; color: var(--coblocks-text, #14264d); font: inherit; font-size: 10px; font-weight: 700; cursor: pointer; }
+.ls-native-backpack-delete { color: var(--coblocks-danger, #b54a4a); }
+.ls-native-backpack-status { min-height: 15px; color: var(--coblocks-muted, #647487); font-size: 11px; }
+.ls-native-backpack-status.is-error { color: var(--coblocks-danger, #b43b3b); }
+.ls-native-backpack-status.is-success { color: var(--coblocks-text, #14264d); }
 .ls-collab-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ls-collab-actions .ls-danger-button { grid-column: 1 / -1; }
 .ls-secondary-button, .ls-danger-button { min-width: 0; min-height: 36px; padding: 7px 10px; border-radius: 9px; overflow: hidden; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.ls-secondary-button { border: 1px solid #b8c4da; color: #14264d; background: #fff; }
-.ls-secondary-button:hover { background: #eef3fc; }
-.ls-danger-button { border: 1px solid #efc5c5; color: #a33939; background: #fff7f7; }
-.ls-danger-button:hover { background: #ffecec; }
+.ls-secondary-button { border: 1px solid var(--coblocks-border, #b8c4da); color: var(--coblocks-text, #14264d); background: var(--coblocks-surface, #fff); }
+.ls-secondary-button:hover { background: var(--coblocks-hover, #eef3fc); }
+.ls-danger-button { border: 1px solid #efc5c5; color: var(--coblocks-danger, #a33939); background: var(--coblocks-danger-surface, #fff7f7); }
+.ls-danger-button:hover { background: var(--coblocks-danger-surface, #ffecec); }
 #lsShare { transition: transform .16s ease, filter .16s ease, box-shadow .16s ease; }
 #lsShare:hover { filter: brightness(1.06); transform: translateY(-1px); }
 #lsShare:focus-visible { outline: 3px solid rgba(95,210,165,.42); outline-offset: 2px; }
 .ls-share-button-icon { width: 18px; height: 18px; display: inline-flex; }
 .ls-share-button-icon svg { width: 100%; height: 100%; }
-.ls-notification-button { position: relative; width: 36px; min-width: 36px; height: 36px; margin-right: 8px; padding: 8px !important; border-radius: 9px !important; color: #14264d !important; background: rgba(255,255,255,.92) !important; box-shadow: 0 2px 8px rgba(20,38,77,.14); cursor: pointer; }
-.ls-notification-button:hover { background: #fff8df !important; transform: translateY(-1px); }
+.ls-notification-button { position: relative; width: 36px; min-width: 36px; height: 36px; margin-right: 8px; padding: 8px !important; border-radius: 9px !important; color: var(--coblocks-text, #14264d) !important; background: var(--coblocks-surface, rgba(255,255,255,.92)) !important; box-shadow: 0 2px 8px var(--coblocks-border, rgba(20,38,77,.14)); cursor: pointer; }
+.ls-notification-button:hover { background: var(--coblocks-hover, #fff8df) !important; transform: translateY(-1px); }
 .ls-notification-button > svg { width: 20px; height: 20px; }
 .ls-notification-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border: 2px solid #855cd6; border-radius: 999px; color: #fff; background: #d33b54; font-size: 9px; font-weight: 800; line-height: 1; }
 .ls-notification-badge[hidden] { display: none; }
-#lsNotificationCenter { position: absolute; top: 44px; right: 8px; z-index: 1100; width: min(340px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 70px)); overflow: hidden; border: 1px solid rgba(20,38,77,.14); border-radius: 15px; color: #14264d; background: #fff; box-shadow: 0 18px 46px rgba(22,43,35,.26); font-family: "Helvetica Neue",Helvetica,Arial,sans-serif; }
+#lsNotificationCenter { position: absolute; top: 44px; right: 8px; z-index: 1100; width: min(340px, calc(100vw - 24px)); max-height: min(430px, calc(100vh - 70px)); overflow: hidden; border: 1px solid var(--coblocks-border, rgba(20,38,77,.14)); border-radius: 15px; color: var(--coblocks-text, #14264d); background: var(--coblocks-surface, #fff); box-shadow: 0 18px 46px rgba(22,43,35,.26); font-family: "Helvetica Neue",Helvetica,Arial,sans-serif; }
 #lsNotificationCenter[hidden], #lsNotificationToast[hidden] { display: none; }
-.ls-notification-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px 11px; border-bottom: 1px solid #e7ebf2; background: linear-gradient(120deg,#fffdf7,#ffe399); }
+.ls-notification-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 14px 11px; border-bottom: 1px solid var(--coblocks-border, #e7ebf2); background: linear-gradient(120deg,#fffdf7,#ffe399); }
 .ls-notification-header > div { display: flex; flex-direction: column; }
 .ls-notification-header strong { color: #14264d; font-size: 15px; }
 .ls-notification-header span { color: #63708a; font-size: 11px; }
-.ls-notification-clear { padding: 5px 7px; border: 0; border-radius: 7px; color: #14264d; background: rgba(255,255,255,.65); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
-.ls-notification-clear:hover { background: #fff; }
+.ls-notification-clear { padding: 5px 7px; border: 0; border-radius: 7px; color: var(--coblocks-text, #14264d); background: rgba(255,255,255,.65); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.ls-notification-clear:hover { background: var(--coblocks-surface, #fff); }
 .ls-notification-list { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
-.ls-notification-item { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; padding: 9px; border: 0; border-radius: 10px; color: #14264d; background: transparent; font: inherit; text-align: left; cursor: pointer; }
-.ls-notification-item:hover { background: #f3f6fb; }
-.ls-notification-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: #425a88; background: #eaf0fb; }
+.ls-notification-item { box-sizing: border-box; width: 100%; display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 9px; padding: 9px; border: 0; border-radius: 10px; color: var(--coblocks-text, #14264d); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.ls-notification-item:hover { background: var(--coblocks-surface-alt, #f3f6fb); }
+.ls-notification-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: var(--coblocks-text, #425a88); background: var(--coblocks-surface-alt, #eaf0fb); }
 .ls-notification-icon svg { width: 18px; height: 18px; }
 .ls-notification-item.is-chat .ls-notification-icon { color: #765a00; background: #fff1b8; }
 .ls-notification-item.is-join .ls-notification-icon, .ls-notification-item.is-success .ls-notification-icon { color: #14734a; background: #dff5ea; }
-.ls-notification-item.is-leave .ls-notification-icon { color: #5f6b80; background: #edf0f5; }
+.ls-notification-item.is-leave .ls-notification-icon { color: #5f6b80; background: var(--coblocks-surface-alt, #edf0f5); }
 .ls-notification-item.is-error .ls-notification-icon { color: #a33242; background: #ffe8ec; }
 .ls-notification-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ls-notification-copy strong { overflow: hidden; color: #1e2f51; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.ls-notification-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #53617a; font-size: 11px; line-height: 15px; }
-.ls-notification-copy time { color: #8993a5; font-size: 9px; }
-.ls-notification-empty { padding: 34px 16px; color: #768196; font-size: 12px; text-align: center; }
-#lsNotificationToast { position: absolute; top: 44px; right: 8px; z-index: 1090; width: min(300px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border: 1px solid rgba(20,38,77,.14); border-left: 4px solid #e7b326; border-radius: 11px; color: #14264d; background: #fff; box-shadow: 0 12px 34px rgba(20,38,77,.22); font: inherit; text-align: left; cursor: pointer; }
+.ls-notification-copy strong { overflow: hidden; color: var(--coblocks-text, #1e2f51); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ls-notification-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--coblocks-muted, #53617a); font-size: 11px; line-height: 15px; }
+.ls-notification-copy time { color: var(--coblocks-muted, #8993a5); font-size: 9px; }
+.ls-notification-empty { padding: 34px 16px; color: var(--coblocks-muted, #768196); font-size: 12px; text-align: center; }
+#lsNotificationToast { position: absolute; top: 44px; right: 8px; z-index: 1090; width: min(300px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border: 1px solid var(--coblocks-border, rgba(20,38,77,.14)); border-left: 4px solid #e7b326; border-radius: 11px; color: var(--coblocks-text, #14264d); background: var(--coblocks-surface, #fff); box-shadow: 0 12px 34px rgba(20,38,77,.22); font: inherit; text-align: left; cursor: pointer; }
 #lsNotificationToast { box-sizing: border-box; touch-action: pan-y; user-select: none; }
-#lsNotificationToast strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #14264d; font-size: 12px; }
-#lsNotificationToast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #53617a; font-size: 11px; line-height: 15px; }
+#lsNotificationToast strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--coblocks-text, #14264d); font-size: 12px; }
+#lsNotificationToast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--coblocks-muted, #53617a); font-size: 11px; line-height: 15px; }
 #lsNotificationToast.is-error { border-left-color: #d33b54; }
 #lsNotificationToast.is-join, #lsNotificationToast.is-success { border-left-color: #27a76f; }
 #lsNotificationToast.is-leave { border-left-color: #758198; }
@@ -2446,10 +2025,10 @@ const shareCSS = `
 .ls-online-users.is-dense { gap: 2px; }
 .ls-online-label { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; padding-right: 3px; color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .ls-online-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #b5f5ce; }
-.ls-online-user { box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: calc(var(--ls-online-avatar-size, 24px) + 6px); min-width: 0; max-width: 132px; padding: 2px 6px 2px 2px; border: 1px solid var(--ls-user-color); border-radius: 9px; color: #14264d; background: var(--ls-user-bg); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; transition: box-shadow .15s ease, background .15s ease; }
-.ls-online-user:hover { background: #fff; box-shadow: inset 0 0 0 1px var(--ls-user-color); }
+.ls-online-user { box-sizing: border-box; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; height: calc(var(--ls-online-avatar-size, 24px) + 6px); min-width: 0; max-width: 132px; padding: 2px 6px 2px 2px; border: 1px solid var(--ls-user-color); border-radius: 9px; color: var(--coblocks-text, #14264d); background: var(--ls-user-bg); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; transition: box-shadow .15s ease, background .15s ease; }
+.ls-online-user:hover { background: var(--coblocks-surface, #fff); box-shadow: inset 0 0 0 1px var(--ls-user-color); }
 .ls-online-user:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.ls-online-avatar { flex: 0 0 var(--ls-online-avatar-size, 24px); width: var(--ls-online-avatar-size, 24px); height: var(--ls-online-avatar-size, 24px); object-fit: cover; border-radius: 6px; background: #fff; }
+.ls-online-avatar { flex: 0 0 var(--ls-online-avatar-size, 24px); width: var(--ls-online-avatar-size, 24px); height: var(--ls-online-avatar-size, 24px); object-fit: cover; border-radius: 6px; background: var(--coblocks-surface, #fff); }
 .ls-online-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #lsOnlineTooltip { position: fixed; z-index: 10000; max-width: min(280px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px; color: #fff; background: #25334d; box-shadow: 0 3px 10px #0003; font: 12px/1.4 "Helvetica Neue", Helvetica, Arial, sans-serif; overflow-wrap: anywhere; pointer-events: none; }
 #lsOnlineTooltip[hidden] { display: none; }
@@ -2459,7 +2038,7 @@ const shareCSS = `
 .ls-live-pointer span { display: block; width: max-content; max-width: 130px; margin: -3px 0 0 14px; padding: 3px 6px; border-radius: 4px; color: #fff; background: var(--ls-pointer-color); font: 700 11px/1.3 "Helvetica Neue", Helvetica, Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .ls-live-pointer { transition: none; } }
 
-// highlight blocks
+/* Highlight blocks. */
 
 
 .tag{
@@ -2470,7 +2049,7 @@ const shareCSS = `
 
 }
 .tagName{
-    color:white;
+    color: white;
     padding: 4px;
 border-radius: 20px;
 
@@ -3762,6 +3341,26 @@ function addButtonInjectors() {
             dropdown.style.right = '10px';
             dropdown.style.zIndex = '1000';
             dropdown.style.display = 'none';
+            dropdown.popover = 'manual';
+            dropdown.style.cssText += ';position:fixed;inset:auto;margin:0;padding:0;border:0;background:transparent;overflow:visible';
+            let dropdownOpen = false;
+            const positionDropdown = () => {
+                if (!dropdownOpen) return;
+                const bounds = button.getBoundingClientRect();
+                dropdown.style.top = `${bounds.bottom + 8}px`;
+                dropdown.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - dropdown.offsetWidth - 8))}px`;
+            };
+            new MutationObserver(() => {
+                const open = dropdown.style.display !== 'none';
+                if (open === dropdownOpen) return;
+                dropdownOpen = open;
+                if (open) {
+                    dropdown.showPopover();
+                    positionDropdown();
+                } else dropdown.hidePopover();
+            }).observe(dropdown, { attributes: true, attributeFilter: ['style'] });
+            window.addEventListener('resize', positionDropdown);
+            window.addEventListener('scroll', positionDropdown, true);
             lsDropdown = dropdown;
 
             button.onclick = () => {
@@ -4213,8 +3812,6 @@ function injectLoadingOverlay() {
     } catch (e) { console.error(e); }
 }
 
-const editorDarkMode = getComputedStyle(document.documentElement).getPropertyValue('--editorDarkMode-page') !== '';
-
 const chatCss = `
 .emojione{
     height: 20px;
@@ -4286,19 +3883,19 @@ ls-msg{
     max-height: 220px;
     overflow-y: auto;
     flex-shrink: 0;
-    color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#000000'};
-    border:2px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : 'rgba(0, 0, 0, 0.189)'};
+    color: var(--coblocks-text, var(--editorDarkMode-accent-text, #000000));
+    border: 2px solid var(--coblocks-border, var(--editorDarkMode-border, rgba(0, 0, 0, 0.189)));
     border-radius: 10px;
     padding: 5px 6px;
     max-width: 80%;
     margin-left: 15px;
     font-size: 18px;
-    background-color: ${editorDarkMode ? 'var(--editorDarkMode-input)' : 'rgb(255, 255, 255)'};
+    background-color: var(--coblocks-input, var(--editorDarkMode-input, rgb(255, 255, 255)));
     overflow-wrap: anywhere;
 }
 ls-msg-sender-name{
     font-style:italic;
-    color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : 'rgb(73, 73, 73)'};
+    color: var(--coblocks-text, var(--editorDarkMode-accent-text, rgb(73, 73, 73)));
 }
 ls-msg-sender:first-of-type{
     margin-top: 1px;
@@ -4329,9 +3926,9 @@ ls-chat-send-button{
     height: 100%;
     min-height: 40px;
     background-color: #14264d;
-    color:white;
+    color: white;
     text-align: center;
-    border-left: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#dcdee0'};
+    border-left: 1px solid var(--coblocks-border, var(--editorDarkMode-border, #dcdee0));
 
     transition: 0.2s scale;
 }
@@ -4347,7 +3944,7 @@ ls-chat-send{
     align-items: center;
     border-radius: 8px;
     border-top-right-radius: 0;
-    border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#d9d9d9'};
+    border: 1px solid var(--coblocks-border, var(--editorDarkMode-border, #d9d9d9));
     margin: 10px;
     margin-top: 0;
     box-shadow: 0px -2px 5px 0px #0000001a;
@@ -4355,6 +3952,7 @@ ls-chat-send{
 }
 
 ls-chat-input{
+    color: inherit;
     flex-grow: 1;
     max-height:150px;
     min-height:40px;
@@ -4366,7 +3964,7 @@ ls-chat-input{
     font-size:17px;
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     padding:10px;
-    background-color: ${editorDarkMode ? 'var(--editorDarkMode-input)' : 'white'};
+    background-color: var(--coblocks-input, var(--editorDarkMode-input, white));
 
     /* text-align: center; */
 }
@@ -4389,7 +3987,7 @@ ls-chat-msgs{
     font-family: Tahoma, sans-serif;
     font-size: 20px;
     line-height: 20px;
-    color:rgb(38, 38, 38);
+    color: rgb(38, 38, 38);
     gap:3px;
     align-items: flex-start;
 }
@@ -4425,7 +4023,7 @@ ls-chat-head-text{
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     font-weight: bold;
     font-size: 20px;
-    color:white;
+    color: white;
     margin-right: 5px;
 }
 ls-chat-head {
@@ -4459,8 +4057,10 @@ ls-chat{
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 
-    background-color: ${editorDarkMode ? 'var(--editorDarkMode-accent)' : '#fff'};
-    border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#c6cdd6'};
+    color: var(--coblocks-text, var(--editorDarkMode-accent-text, #1f2b45));
+    color-scheme: var(--coblocks-color-scheme, normal);
+    background-color: var(--coblocks-surface, var(--editorDarkMode-accent, #fff));
+    border: 1px solid var(--coblocks-border, var(--editorDarkMode-border, #c6cdd6));
 
     box-sizing: border-box;
 
@@ -4496,7 +4096,7 @@ ls-chat:not(.popout){
 }
 
 /* CoBlocks chat refresh */
-ls-chat { border-radius: 14px; min-width: 270px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#d9e1ef'}; box-shadow: 0 10px 30px rgba(20,38,77,.12); }
+ls-chat { border-radius: 14px; min-width: 270px; border: 1px solid var(--coblocks-border, var(--editorDarkMode-border, #d9e1ef)); box-shadow: 0 10px 30px rgba(20,38,77,.12); }
 ls-chat-head { min-height: 54px; height: 54px; padding: 8px 10px; border-radius: 13px 13px 10px 10px; background: linear-gradient(120deg,#fffdf7,#ffd86b); box-shadow: inset 0 2px 0 rgba(255,255,255,.38); }
 ls-chat-head #logo { width: 34px; height: 34px !important; padding: 3px; margin-right: 8px !important; border-radius: 9px; background: rgba(255,255,255,.92); object-fit: contain; }
 ls-chat-head-text { display: flex; flex-direction: column; color: #14264d; font-size: 16px; line-height: 18px; }
@@ -4507,12 +4107,12 @@ ls-msg-space { height: 2px; }
 ls-msg-sender { gap: 7px; margin: 7px 0 0; }
 ls-msg-sender.mymsg { flex-direction: row-reverse; }
 ls-msg-sender-img { width: 28px; height: 28px; border-radius: 9px; background-size: cover; background-position: center; }
-ls-msg-sender-name { color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#60708c'}; font-size: 12px; font-style: normal; font-weight: 700; }
-ls-msg { max-width: 82%; margin: 0; padding: 8px 10px; border: 0; border-radius: 12px 12px 12px 4px; color: ${editorDarkMode ? 'var(--editorDarkMode-accent-text)' : '#1f2b45'}; background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#f1f4f9'}; font-size: 14px; line-height: 18px; box-shadow: none; }
-ls-msg.mymsg { border-radius: 12px 12px 4px 12px; color: #14264d; background: linear-gradient(120deg,#dce6f7,#b9cae8); }
-ls-chat-send { min-height: 46px; margin: 8px 10px 10px; border: 1px solid ${editorDarkMode ? 'var(--editorDarkMode-border)' : '#cbd5e7'}; border-radius: 11px; box-shadow: 0 3px 12px rgba(20,38,77,.08); background: ${editorDarkMode ? 'var(--editorDarkMode-input)' : '#fff'}; }
+ls-msg-sender-name { color: var(--coblocks-text, var(--editorDarkMode-accent-text, #60708c)); font-size: 12px; font-style: normal; font-weight: 700; }
+ls-msg { max-width: 82%; margin: 0; padding: 8px 10px; border: 0; border-radius: 12px 12px 12px 4px; color: var(--coblocks-text, var(--editorDarkMode-accent-text, #1f2b45)); background: var(--coblocks-input, var(--editorDarkMode-input, #f1f4f9)); font-size: 14px; line-height: 18px; box-shadow: none; }
+ls-msg.mymsg { border-radius: 12px 12px 4px 12px; color: var(--coblocks-text, #14264d); background: var(--coblocks-own-message, linear-gradient(120deg,#dce6f7,#b9cae8)); }
+ls-chat-send { min-height: 46px; margin: 8px 10px 10px; border: 1px solid var(--coblocks-border, var(--editorDarkMode-border, #cbd5e7)); border-radius: 11px; box-shadow: 0 3px 12px rgba(20,38,77,.08); background: var(--coblocks-input, var(--editorDarkMode-input, #fff)); }
 ls-chat-input { min-width: 0; min-height: 44px; padding: 11px 12px; font-size: 14px; line-height: 20px; background: transparent; }
-ls-chat-input:empty::before { content: attr(data-placeholder); color: #86938d; pointer-events: none; }
+ls-chat-input:empty::before { content: attr(data-placeholder); color: var(--coblocks-muted, #86938d); pointer-events: none; }
 ls-chat-send-button { width: 44px; min-height: 44px; border: 0; border-radius: 0 10px 10px 0; background: linear-gradient(135deg,#7188b4,#8fa4cb); cursor: pointer; }
 ls-chat-send-button:hover { scale: 1; filter: brightness(1.08); }
 ls-chat.popout { min-width: 300px; min-height: 320px; border-radius: 14px; box-shadow: 0 18px 50px rgba(22,45,36,.28); }
