@@ -5,6 +5,7 @@ import { authenticate, fullAuthenticate } from './utils/scratch-auth.js';
 import { getBanned } from './utils/fileStorage.js';
 
 const BROADCAST_PREFIX = 'toall ';
+const SOCKET_AUTH_TIMEOUT_MS = 30_000;
 const admins = JSON.parse(process.env.ADMIN || '[]').map(name => String(name).toLowerCase());
 
 export default class SocketServer {
@@ -36,6 +37,7 @@ export default class SocketServer {
         }
         client.data ||= {};
         client.data.coblocksToken = data.token;
+        this.markAuthenticated(client);
         this.saveProfileId(data.username, data.pk);
     }
 
@@ -56,6 +58,7 @@ export default class SocketServer {
         if (joined) {
             client.data ||= {};
             client.data.coblocksToken = data.token;
+            this.markAuthenticated(client);
             this.saveProfileId(data.username, data.pk);
         }
     }
@@ -212,6 +215,12 @@ export default class SocketServer {
     }
 
     handleConnection(client) {
+        client.data ||= {};
+        client.data.authTimeout = setTimeout(() => {
+            if (client.data?.authenticated) return;
+            client.disconnect(true);
+        }, SOCKET_AUTH_TIMEOUT_MS);
+
         client.on('message', (data, callback) => {
             const handler = this.handlers[data?.type];
             if (!handler) {
@@ -233,6 +242,16 @@ export default class SocketServer {
             }
         });
 
-        client.on('disconnect', () => this.sessionManager.disconnectSocket(client));
+        client.on('disconnect', () => {
+            clearTimeout(client.data?.authTimeout);
+            this.sessionManager.disconnectSocket(client);
+        });
+    }
+
+    markAuthenticated(client) {
+        client.data ||= {};
+        client.data.authenticated = true;
+        clearTimeout(client.data.authTimeout);
+        delete client.data.authTimeout;
     }
 }

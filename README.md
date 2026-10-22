@@ -11,6 +11,8 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/livescratch-live-scratch/pfaldlkkohfdnmlcladmhlihpbhlkolm"><img src="https://img.shields.io/badge/Install-Chrome%20Extension-FFC83D?logo=googlechrome&logoColor=14264D" alt="Install the CoBlocks Chrome extension"></a>
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/coblocks-live-scratch-collabs/"><img src="https://img.shields.io/badge/Install-Firefox%20Add--on-FFC83D?logo=firefoxbrowser&logoColor=14264D" alt="Install the CoBlocks Firefox add-on"></a>
+  <a href="https://microsoftedge.microsoft.com/addons/detail/livescratch-live-scratch/ehcpagadfmpikciaphckbpfkhdammblk"><img src="https://img.shields.io/badge/Install-Edge%20Extension-FFC83D?logo=microsoftedge&logoColor=14264D" alt="Install the CoBlocks Edge extension"></a>
   <a href="https://status.uptime-monitor.io/67497373f98a6334aaea672d"><img src="https://img.shields.io/badge/API-Status-14264D" alt="CoBlocks API status"></a>
   <a href="https://ko-fi.com/waakul"><img src="https://img.shields.io/badge/Support-Ko--fi-FFC83D" alt="Support CoBlocks on Ko-fi"></a>
 </p>
